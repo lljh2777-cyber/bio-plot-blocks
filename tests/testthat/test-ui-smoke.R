@@ -1,0 +1,10 @@
+test_that("workspace UI renders the full primary surface", {
+  skip_if_not_installed("shiny")
+  source(file.path(root, "app", "modules", "workspace-ui.R"), local = environment())
+  ui <- bp_workspace_ui(root)
+  html <- htmltools::renderTags(ui)$html
+  expect_match(html, "BioPlotBlocks")
+  expect_match(html, "Layer stack")
+  expect_match(html, "Generated R")
+  expect_match(html, "Run preview")
+})

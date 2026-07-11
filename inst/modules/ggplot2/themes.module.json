@@ -1,0 +1,61 @@
+{
+  "modules": [
+    {
+      "schema_version": "0.2.0", "module_version": "0.1.0", "id": "r.ggplot2.theme_classic", "runtime": "R", "r_version": ">=4.4.0 <4.6.0", "package": "ggplot2", "package_version": ">=4.0.0 <4.1.0", "symbol": "theme_classic", "exported": true, "module_type": "r_function_call", "status": "beta",
+      "presentation": {"title": "Classic theme", "category": "theme", "icon": "theme", "summary": "Use a classic axis-line theme without panel grids"},
+      "composition": {"output_type": "ggplot_component", "accepted_contexts": ["ggplot_plus_chain"], "operator": "+", "multiplicity": "one"},
+      "parameters": [
+        {"name": "base_size", "source": "formal", "formal_default": {"type": "RDouble", "value": 11}, "value_types": ["r_number", "r_expression"], "ui_group": "common", "ui_control": "numeric_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::theme_classic installed help", "version_notes": "Base text size."},
+        {"name": "base_family", "source": "formal", "formal_default": {"type": "RCharacter", "value": ""}, "value_types": ["r_character", "r_expression"], "ui_group": "common", "ui_control": "text", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::theme_classic installed help", "version_notes": "Base font family."},
+        {"name": "header_family", "source": "formal", "formal_default": {"type": "RNull"}, "value_types": ["r_character", "r_null", "r_expression"], "ui_group": "advanced", "ui_control": "text", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::theme_classic installed help", "version_notes": "Header font family in ggplot2 4.0."},
+        {"name": "base_line_size", "source": "formal", "formal_default": {"type": "RRawExpression", "source": "base_size / 22"}, "value_types": ["r_number", "r_expression"], "ui_group": "advanced", "ui_control": "numeric_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::theme_classic installed help", "version_notes": "Expression default is preserved."},
+        {"name": "base_rect_size", "source": "formal", "formal_default": {"type": "RRawExpression", "source": "base_size / 22"}, "value_types": ["r_number", "r_expression"], "ui_group": "advanced", "ui_control": "numeric_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::theme_classic installed help", "version_notes": "Expression default is preserved."},
+        {"name": "ink", "source": "formal", "formal_default": {"type": "RCharacter", "value": "black"}, "value_types": ["r_character", "r_expression"], "ui_group": "advanced", "ui_control": "color_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::theme_classic installed help", "version_notes": "Foreground colour role in ggplot2 4.0."},
+        {"name": "paper", "source": "formal", "formal_default": {"type": "RCharacter", "value": "white"}, "value_types": ["r_character", "r_expression"], "ui_group": "advanced", "ui_control": "color_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::theme_classic installed help", "version_notes": "Background colour role in ggplot2 4.0."},
+        {"name": "accent", "source": "formal", "formal_default": {"type": "RCharacter", "value": "#3366FF"}, "value_types": ["r_character", "r_expression"], "ui_group": "advanced", "ui_control": "color_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::theme_classic installed help", "version_notes": "Accent colour role in ggplot2 4.0."}
+      ],
+      "code_generation": {"call_style": "named", "namespace_policy": "project_setting", "preserve_argument_order": true, "omit_unset_parameters": true, "preserve_explicit_defaults": true, "support_raw_expressions": true},
+      "code_parsing": {"accepted_symbols": ["theme_classic", "ggplot2::theme_classic"], "unknown_arguments": "preserve_as_named_raw", "unknown_values": "preserve_as_raw_expression"},
+      "documentation": {"reference_topic": "ggtheme", "source_type": "installed_package_help"},
+      "compatibility": {"runtime": "R", "required_context": "ggplot_plus_chain", "output_type": "ggplot_component"},
+      "provenance": {"generated_by": "manual_agent_hybrid", "source_environment_lock": "config/compatibility-matrix.json", "mapping_rule_version": "0.2.0", "reviewed": true, "confidence": "verified_runtime"},
+      "tests": {"required": ["schema", "codegen", "parser", "roundtrip", "execution"]}
+    },
+    {
+      "schema_version": "0.2.0", "module_version": "0.1.0", "id": "r.ggplot2.theme_minimal", "runtime": "R", "r_version": ">=4.4.0 <4.6.0", "package": "ggplot2", "package_version": ">=4.0.0 <4.1.0", "symbol": "theme_minimal", "exported": true, "module_type": "r_function_call", "status": "experimental",
+      "presentation": {"title": "Minimal theme", "category": "theme", "icon": "theme", "summary": "Use a minimal theme with a clean panel"},
+      "composition": {"output_type": "ggplot_component", "accepted_contexts": ["ggplot_plus_chain"], "operator": "+", "multiplicity": "one"},
+      "parameters": [
+        {"name": "base_size", "source": "formal", "formal_default": {"type": "RDouble", "value": 11}, "value_types": ["r_number", "r_expression"], "ui_group": "common", "ui_control": "numeric_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::theme_minimal installed help", "version_notes": "Base text size."},
+        {"name": "base_family", "source": "formal", "formal_default": {"type": "RCharacter", "value": ""}, "value_types": ["r_character", "r_expression"], "ui_group": "common", "ui_control": "text", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::theme_minimal installed help", "version_notes": "Base font family."},
+        {"name": "header_family", "source": "formal", "formal_default": {"type": "RNull"}, "value_types": ["r_character", "r_null", "r_expression"], "ui_group": "advanced", "ui_control": "text", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::theme_minimal installed help", "version_notes": "Header font family in ggplot2 4.0."},
+        {"name": "base_line_size", "source": "formal", "formal_default": {"type": "RRawExpression", "source": "base_size / 22"}, "value_types": ["r_number", "r_expression"], "ui_group": "advanced", "ui_control": "numeric_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::theme_minimal installed help", "version_notes": "Expression default is preserved."},
+        {"name": "base_rect_size", "source": "formal", "formal_default": {"type": "RRawExpression", "source": "base_size / 22"}, "value_types": ["r_number", "r_expression"], "ui_group": "advanced", "ui_control": "numeric_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::theme_minimal installed help", "version_notes": "Expression default is preserved."}
+      ],
+      "code_generation": {"call_style": "named", "namespace_policy": "project_setting", "preserve_argument_order": true, "omit_unset_parameters": true, "preserve_explicit_defaults": true, "support_raw_expressions": true},
+      "code_parsing": {"accepted_symbols": ["theme_minimal", "ggplot2::theme_minimal"], "unknown_arguments": "preserve_as_named_raw", "unknown_values": "preserve_as_raw_expression"},
+      "documentation": {"reference_topic": "ggtheme", "source_type": "installed_package_help"},
+      "compatibility": {"runtime": "R", "required_context": "ggplot_plus_chain", "output_type": "ggplot_component"},
+      "provenance": {"generated_by": "manual_agent_hybrid", "source_environment_lock": "config/compatibility-matrix.json", "mapping_rule_version": "0.2.0", "reviewed": false, "confidence": "verified_documentation"},
+      "tests": {"required": ["schema", "codegen", "parser", "roundtrip", "execution"]}
+    },
+    {
+      "schema_version": "0.2.0", "module_version": "0.1.0", "id": "r.ggplot2.theme_bw", "runtime": "R", "r_version": ">=4.4.0 <4.6.0", "package": "ggplot2", "package_version": ">=4.0.0 <4.1.0", "symbol": "theme_bw", "exported": true, "module_type": "r_function_call", "status": "experimental",
+      "presentation": {"title": "Black-and-white theme", "category": "theme", "icon": "theme", "summary": "Use a white background with grey grid lines"},
+      "composition": {"output_type": "ggplot_component", "accepted_contexts": ["ggplot_plus_chain"], "operator": "+", "multiplicity": "one"},
+      "parameters": [
+        {"name": "base_size", "source": "formal", "formal_default": {"type": "RDouble", "value": 11}, "value_types": ["r_number", "r_expression"], "ui_group": "common", "ui_control": "numeric_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::theme_bw installed help", "version_notes": "Base text size."},
+        {"name": "base_family", "source": "formal", "formal_default": {"type": "RCharacter", "value": ""}, "value_types": ["r_character", "r_expression"], "ui_group": "common", "ui_control": "text", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::theme_bw installed help", "version_notes": "Base font family."},
+        {"name": "header_family", "source": "formal", "formal_default": {"type": "RNull"}, "value_types": ["r_character", "r_null", "r_expression"], "ui_group": "advanced", "ui_control": "text", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::theme_bw installed help", "version_notes": "Header font family in ggplot2 4.0."},
+        {"name": "base_line_size", "source": "formal", "formal_default": {"type": "RRawExpression", "source": "base_size / 22"}, "value_types": ["r_number", "r_expression"], "ui_group": "advanced", "ui_control": "numeric_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::theme_bw installed help", "version_notes": "Expression default is preserved."},
+        {"name": "base_rect_size", "source": "formal", "formal_default": {"type": "RRawExpression", "source": "base_size / 22"}, "value_types": ["r_number", "r_expression"], "ui_group": "advanced", "ui_control": "numeric_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::theme_bw installed help", "version_notes": "Expression default is preserved."}
+      ],
+      "code_generation": {"call_style": "named", "namespace_policy": "project_setting", "preserve_argument_order": true, "omit_unset_parameters": true, "preserve_explicit_defaults": true, "support_raw_expressions": true},
+      "code_parsing": {"accepted_symbols": ["theme_bw", "ggplot2::theme_bw"], "unknown_arguments": "preserve_as_named_raw", "unknown_values": "preserve_as_raw_expression"},
+      "documentation": {"reference_topic": "ggtheme", "source_type": "installed_package_help"},
+      "compatibility": {"runtime": "R", "required_context": "ggplot_plus_chain", "output_type": "ggplot_component"},
+      "provenance": {"generated_by": "manual_agent_hybrid", "source_environment_lock": "config/compatibility-matrix.json", "mapping_rule_version": "0.2.0", "reviewed": false, "confidence": "verified_documentation"},
+      "tests": {"required": ["schema", "codegen", "parser", "roundtrip", "execution"]}
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+^app$
+^docs$
+^skills$
+^scripts$
+^renv$
+^renv\.lock$
+^BioPlotBlocks_R_ggplot2_Development_Process_and_Requirements_Specification_v0\.2_EN\.md$
+^BioPlotBlocks_R语言_ggplot2开发流程与需求规范_v0\.2\.md$

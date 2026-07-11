@@ -1,0 +1,18 @@
+{
+  "matrix_version": "0.2.0",
+  "locked_environment": {
+    "r": "4.5.1",
+    "ggplot2": "4.0.1",
+    "shiny": "1.13.0",
+    "platform": "windows"
+  },
+  "supported": [
+    {
+      "r": ">=4.4.0 <4.6.0",
+      "ggplot2": ">=4.0.0 <4.1.0",
+      "status": "development_locked"
+    }
+  ],
+  "first_class_packages": ["ggplot2"],
+  "base_packages_allowed_in_expressions": ["base", "stats", "graphics", "grDevices", "utils"]
+}

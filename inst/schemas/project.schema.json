@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bioplotblocks.local/schemas/project.schema.json",
+  "title": "BioPlotBlocks Project",
+  "type": "object",
+  "required": ["schema_version", "application_version", "name", "runtime", "package_scope", "assignment", "modules", "settings", "versions"],
+  "properties": {
+    "schema_version": {"const": "0.2.0"},
+    "runtime": {"const": "R"},
+    "package_scope": {"const": "ggplot2"},
+    "modules": {"type": "array"}
+  },
+  "additionalProperties": true
+}

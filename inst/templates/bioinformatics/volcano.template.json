@@ -1,0 +1,84 @@
+{
+  "schema_version": "0.2.0",
+  "id": "bio.volcano.basic",
+  "version": "0.1.0",
+  "title": "Volcano analysis",
+  "display_title": "Volcano plot (DEGs)",
+  "runtime": "R",
+  "package_scope": "ggplot2",
+  "category": "bioinformatics",
+  "description": "Visualize prepared differential-expression columns without running an analysis or hidden transformation.",
+  "required_columns": [
+    {"name": "log2FC", "type": "numeric", "role": "x coordinate"},
+    {"name": "neg_log10_padj", "type": "numeric", "role": "y coordinate"},
+    {"name": "status", "type": "categorical", "role": "colour grouping"}
+  ],
+  "modules": [
+    {
+      "module_id": "r.ggplot2.ggplot",
+      "arguments": {
+        "data": {"state": "explicit", "origin": "formal", "value": {"type": "RSymbol", "name": "df"}},
+        "mapping": {
+          "state": "explicit",
+          "origin": "formal",
+          "value": {
+            "type": "RAesMapping",
+            "mappings": {
+              "x": {"type": "RSymbol", "name": "log2FC"},
+              "y": {"type": "RSymbol", "name": "neg_log10_padj"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "module_id": "r.ggplot2.geom_point",
+      "arguments": {
+        "mapping": {
+          "state": "explicit",
+          "origin": "formal",
+          "value": {"type": "RAesMapping", "mappings": {"color": {"type": "RSymbol", "name": "status"}}}
+        },
+        "size": {"state": "explicit", "origin": "dots_aesthetic", "value": {"type": "RDouble", "value": 1.6}},
+        "alpha": {"state": "explicit", "origin": "dots_aesthetic", "value": {"type": "RDouble", "value": 0.7}},
+        "shape": {"state": "explicit", "origin": "dots_aesthetic", "value": {"type": "RInteger", "value": 16}}
+      }
+    },
+    {
+      "module_id": "r.ggplot2.geom_vline",
+      "arguments": {
+        "xintercept": {"state": "raw_expression", "origin": "formal", "value": {"type": "RRawExpression", "source": "c(-1, 1)"}},
+        "linetype": {"state": "explicit", "origin": "dots_aesthetic", "value": {"type": "RCharacter", "value": "dashed"}},
+        "color": {"state": "explicit", "origin": "dots_aesthetic", "value": {"type": "RCharacter", "value": "grey40"}}
+      }
+    },
+    {
+      "module_id": "r.ggplot2.geom_hline",
+      "arguments": {
+        "yintercept": {"state": "raw_expression", "origin": "formal", "value": {"type": "RRawExpression", "source": "-log10(0.05)"}},
+        "linetype": {"state": "explicit", "origin": "dots_aesthetic", "value": {"type": "RCharacter", "value": "dashed"}},
+        "color": {"state": "explicit", "origin": "dots_aesthetic", "value": {"type": "RCharacter", "value": "grey40"}}
+      }
+    },
+    {
+      "module_id": "r.ggplot2.scale_color_manual",
+      "arguments": {
+        "values": {"state": "raw_expression", "origin": "formal", "value": {"type": "RRawExpression", "source": "c(Down = \"#2C7FB8\", NS = \"grey70\", Up = \"#D73027\")"}}
+      }
+    },
+    {
+      "module_id": "r.ggplot2.labs",
+      "arguments": {
+        "title": {"state": "explicit", "origin": "formal", "value": {"type": "RCharacter", "value": "Volcano plot"}},
+        "x": {"state": "explicit", "origin": "dots_documented", "value": {"type": "RCharacter", "value": "log2 Fold Change"}},
+        "y": {"state": "explicit", "origin": "dots_documented", "value": {"type": "RCharacter", "value": "-log10 adjusted p-value"}}
+      }
+    },
+    {
+      "module_id": "r.ggplot2.theme_classic",
+      "arguments": {
+        "base_size": {"state": "explicit", "origin": "formal", "value": {"type": "RDouble", "value": 12}}
+      }
+    }
+  ]
+}

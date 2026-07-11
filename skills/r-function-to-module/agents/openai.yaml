@@ -1,0 +1,4 @@
+interface:
+  display_name: "Map ggplot2 Function"
+  short_description: "Draft auditable ggplot2 visual modules"
+  default_prompt: "Use $r-function-to-module to draft and validate a ModuleSpec for ggplot2::geom_area()."

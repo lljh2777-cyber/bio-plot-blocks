@@ -1,0 +1,25 @@
+Package: BioPlotBlocks
+Type: Package
+Title: Faithful Visual Composition for R and ggplot2
+Version: 0.2.0
+Authors@R: person("BioPlotBlocks", "Team", role = c("aut", "cre"), email = "maintainers@example.invalid")
+Description: Provides a declarative R semantic model, ggplot2 module registry,
+    deterministic code generation, supported-subset parsing, project persistence,
+    controlled local execution, and a Shiny visual editor for composing ggplot2 plots.
+License: MIT
+Encoding: UTF-8
+Depends:
+    R (>= 4.4.0)
+Imports:
+    base64enc,
+    callr,
+    ggplot2 (>= 4.0.0),
+    htmltools,
+    jsonlite,
+    rlang,
+    shiny
+Suggests:
+    testthat (>= 3.0.0),
+    renv
+Config/testthat/edition: 3
+RoxygenNote: 7.3.2

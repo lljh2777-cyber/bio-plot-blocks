@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bioplotblocks.local/schemas/module-spec.schema.json",
+  "title": "BioPlotBlocks ModuleSpec",
+  "type": "object",
+  "required": ["schema_version", "module_version", "id", "runtime", "package", "package_version", "symbol", "module_type", "status", "presentation", "composition", "parameters", "code_generation", "code_parsing", "documentation", "compatibility", "provenance", "tests"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "module_version": {"type": "string"},
+    "id": {"type": "string", "minLength": 1},
+    "runtime": {"const": "R"},
+    "package": {"enum": ["ggplot2", "BioPlotBlocks.core"]},
+    "package_version": {"type": "string"},
+    "symbol": {"type": "string"},
+    "module_type": {"enum": ["r_function_call", "r_nested_call", "r_operator", "r_literal", "r_symbol_reference", "r_formula", "r_raw_expression", "template", "container"]},
+    "status": {"enum": ["draft", "experimental", "beta", "stable", "deprecated", "unsupported"]},
+    "parameters": {"type": "array"}
+  },
+  "additionalProperties": true
+}

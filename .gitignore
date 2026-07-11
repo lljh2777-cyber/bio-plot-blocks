@@ -1,0 +1,24 @@
+# R session and IDE state
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+
+# R build and check artifacts
+*.Rcheck/
+*.tar.gz
+
+# renv local runtime artifacts (keep renv.lock)
+renv/library/
+renv/staging/
+renv/python/
+
+# Editors and operating-system metadata
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local temporary and test-output folders
+tmp/
+output/playwright/

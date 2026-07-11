@@ -1,0 +1,132 @@
+{
+  "modules": [
+    {
+      "schema_version": "0.2.0",
+      "module_version": "0.1.0",
+      "id": "r.ggplot2.ggplot",
+      "runtime": "R",
+      "r_version": ">=4.4.0 <4.6.0",
+      "package": "ggplot2",
+      "package_version": ">=4.0.0 <4.1.0",
+      "symbol": "ggplot",
+      "exported": true,
+      "module_type": "r_function_call",
+      "status": "beta",
+      "presentation": {
+        "title": "ggplot",
+        "category": "core",
+        "icon": "plot",
+        "summary": "Initialize a ggplot object from data and aesthetic mappings"
+      },
+      "composition": {
+        "output_type": "ggplot_object",
+        "accepted_contexts": ["ggplot_plus_chain_start"],
+        "operator": "+",
+        "multiplicity": "one"
+      },
+      "parameters": [
+        {
+          "name": "data",
+          "source": "formal",
+          "formal_default": {"type": "RNull"},
+          "value_types": ["data_reference", "r_null", "r_expression"],
+          "ui_group": "common",
+          "ui_control": "symbol_or_expression",
+          "raw_expression_allowed": true,
+          "omit_when_unset": true,
+          "help_source": "ggplot2::ggplot installed help",
+          "version_notes": "Verified against ggplot2 4.0.1."
+        },
+        {
+          "name": "mapping",
+          "source": "formal",
+          "formal_default": {"type": "RAesMapping", "mappings": {}},
+          "value_types": ["aes_mapping", "r_expression"],
+          "ui_group": "common",
+          "ui_control": "aes_editor",
+          "raw_expression_allowed": true,
+          "omit_when_unset": true,
+          "help_source": "ggplot2::ggplot installed help",
+          "version_notes": "Nested ggplot2::aes call."
+        },
+        {
+          "name": "environment",
+          "source": "formal",
+          "formal_default": {"type": "RRawExpression", "source": "parent.frame()"},
+          "value_types": ["r_environment", "r_expression"],
+          "ui_group": "advanced",
+          "ui_control": "expression",
+          "raw_expression_allowed": true,
+          "omit_when_unset": true,
+          "help_source": "ggplot2::ggplot installed help",
+          "version_notes": "Complex default remains an R expression."
+        }
+      ],
+      "code_generation": {
+        "call_style": "preserve_or_named",
+        "namespace_policy": "project_setting",
+        "preserve_argument_order": true,
+        "omit_unset_parameters": true,
+        "preserve_explicit_defaults": true,
+        "support_raw_expressions": true
+      },
+      "code_parsing": {
+        "accepted_symbols": ["ggplot", "ggplot2::ggplot"],
+        "unknown_arguments": "preserve_as_named_raw",
+        "unknown_values": "preserve_as_raw_expression"
+      },
+      "documentation": {"reference_topic": "ggplot", "source_type": "installed_package_help"},
+      "compatibility": {"runtime": "R", "required_context": "ggplot_plus_chain_start", "output_type": "ggplot_object"},
+      "provenance": {
+        "generated_by": "manual_agent_hybrid",
+        "source_environment_lock": "config/compatibility-matrix.json",
+        "mapping_rule_version": "0.2.0",
+        "reviewed": true,
+        "confidence": "verified_runtime"
+      },
+      "tests": {"required": ["schema", "codegen", "parser", "roundtrip", "execution"]}
+    },
+    {
+      "schema_version": "0.2.0",
+      "module_version": "0.1.0",
+      "id": "r.ggplot2.aes",
+      "runtime": "R",
+      "r_version": ">=4.4.0 <4.6.0",
+      "package": "ggplot2",
+      "package_version": ">=4.0.0 <4.1.0",
+      "symbol": "aes",
+      "exported": true,
+      "module_type": "r_nested_call",
+      "status": "beta",
+      "presentation": {
+        "title": "aes",
+        "category": "core",
+        "icon": "mapping",
+        "summary": "Map data columns and R expressions to aesthetics"
+      },
+      "composition": {
+        "output_type": "aes_mapping",
+        "accepted_contexts": ["mapping_argument"],
+        "operator": null,
+        "multiplicity": "many"
+      },
+      "parameters": [
+        {"name": "x", "source": "dots_documented", "formal_default": null, "value_types": ["r_symbol", "r_expression"], "ui_group": "common", "ui_control": "symbol_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::aes installed help", "version_notes": "Tidy-evaluation expression slot."},
+        {"name": "y", "source": "dots_documented", "formal_default": null, "value_types": ["r_symbol", "r_expression"], "ui_group": "common", "ui_control": "symbol_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::aes installed help", "version_notes": "Tidy-evaluation expression slot."},
+        {"name": "colour", "aliases": ["color"], "source": "dots_documented", "formal_default": null, "value_types": ["r_symbol", "r_expression"], "ui_group": "common", "ui_control": "symbol_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::aes installed help", "version_notes": "Mapped aesthetic, not a fixed colour."},
+        {"name": "fill", "source": "dots_documented", "formal_default": null, "value_types": ["r_symbol", "r_expression"], "ui_group": "common", "ui_control": "symbol_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::aes installed help", "version_notes": "Mapped aesthetic."},
+        {"name": "shape", "source": "dots_documented", "formal_default": null, "value_types": ["r_symbol", "r_expression"], "ui_group": "common", "ui_control": "symbol_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::aes installed help", "version_notes": "Mapped aesthetic."},
+        {"name": "size", "source": "dots_documented", "formal_default": null, "value_types": ["r_symbol", "r_expression"], "ui_group": "advanced", "ui_control": "symbol_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::aes installed help", "version_notes": "Mapped aesthetic."},
+        {"name": "alpha", "source": "dots_documented", "formal_default": null, "value_types": ["r_symbol", "r_expression"], "ui_group": "advanced", "ui_control": "symbol_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::aes installed help", "version_notes": "Mapped aesthetic."},
+        {"name": "group", "source": "dots_documented", "formal_default": null, "value_types": ["r_symbol", "r_expression"], "ui_group": "advanced", "ui_control": "symbol_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::aes installed help", "version_notes": "Grouping aesthetic."},
+        {"name": "label", "source": "dots_documented", "formal_default": null, "value_types": ["r_symbol", "r_expression"], "ui_group": "advanced", "ui_control": "symbol_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::aes installed help", "version_notes": "Text label aesthetic."}
+      ],
+      "code_generation": {"call_style": "named", "namespace_policy": "project_setting", "preserve_argument_order": true, "omit_unset_parameters": true, "preserve_explicit_defaults": true, "support_raw_expressions": true},
+      "code_parsing": {"accepted_symbols": ["aes", "ggplot2::aes"], "unknown_arguments": "preserve_as_named_raw", "unknown_values": "preserve_as_raw_expression"},
+      "documentation": {"reference_topic": "aes", "source_type": "installed_package_help"},
+      "compatibility": {"runtime": "R", "required_context": "mapping_argument", "output_type": "aes_mapping"},
+      "provenance": {"generated_by": "manual_agent_hybrid", "source_environment_lock": "config/compatibility-matrix.json", "mapping_rule_version": "0.2.0", "reviewed": true, "confidence": "verified_runtime"},
+      "tests": {"required": ["schema", "codegen", "parser", "roundtrip", "execution"]}
+    }
+  ]
+}

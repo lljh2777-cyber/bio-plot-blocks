@@ -1,0 +1,19 @@
+{
+  "R": {
+    "Version": "4.5.1",
+    "Repositories": [
+      {"Name": "CRAN", "URL": "https://cloud.r-project.org"}
+    ]
+  },
+  "Packages": {
+    "base64enc": {"Package": "base64enc", "Version": "0.1.6", "Source": "Repository", "Repository": "CRAN"},
+    "callr": {"Package": "callr", "Version": "3.7.6", "Source": "Repository", "Repository": "CRAN"},
+    "ggplot2": {"Package": "ggplot2", "Version": "4.0.1", "Source": "Repository", "Repository": "CRAN"},
+    "htmltools": {"Package": "htmltools", "Version": "0.5.9", "Source": "Repository", "Repository": "CRAN"},
+    "jsonlite": {"Package": "jsonlite", "Version": "2.0.0", "Source": "Repository", "Repository": "CRAN"},
+    "renv": {"Package": "renv", "Version": "1.2.3", "Source": "Repository", "Repository": "CRAN"},
+    "rlang": {"Package": "rlang", "Version": "1.2.0", "Source": "Repository", "Repository": "CRAN"},
+    "shiny": {"Package": "shiny", "Version": "1.13.0", "Source": "Repository", "Repository": "CRAN"},
+    "testthat": {"Package": "testthat", "Version": "3.3.2", "Source": "Repository", "Repository": "CRAN"}
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bioplotblocks.local/schemas/r-ir.schema.json",
+  "title": "BioPlotBlocks R Semantic IR Value",
+  "type": "object",
+  "required": ["type"],
+  "properties": {
+    "type": {
+      "enum": ["RSymbol", "RCharacter", "RDouble", "RInteger", "RLogical", "RNull", "RNA", "RInf", "RNaN", "RFormula", "RCall", "RAesMapping", "RVector", "RRawExpression"]
+    }
+  },
+  "additionalProperties": true
+}
