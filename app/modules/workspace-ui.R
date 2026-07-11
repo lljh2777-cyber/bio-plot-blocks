@@ -188,7 +188,8 @@ bp_workspace_ui <- function(root) {
             )
           ),
           shiny::uiOutput("code_view"),
-          shiny::uiOutput("generated_code_transport")
+          shiny::uiOutput("generated_code_transport"),
+          shiny::uiOutput("project_state_transport")
         )
       ),
       htmltools::tags$footer(

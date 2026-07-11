@@ -423,14 +423,43 @@ body.bp-is-resizing-horizontal * {
   align-items: center;
   gap: 2px;
   flex: 0 0 auto;
-  padding: 0 9px 8px;
+  padding: 0 9px 4px;
   overflow-x: auto;
+  overflow-y: hidden;
   border-bottom: 1px solid var(--bp-border);
-  scrollbar-width: none;
+  cursor: grab;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #aeb9c9 transparent;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 
 .bp-library-filters::-webkit-scrollbar {
-  display: none;
+  display: block;
+  height: 7px;
+}
+
+.bp-library-filters::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.bp-library-filters::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: #aeb9c9;
+  background-clip: content-box;
+}
+
+.bp-library-filters::-webkit-scrollbar-thumb:hover {
+  background: #7f8da3;
+  background-clip: content-box;
+}
+
+.bp-library-filters.is-dragging,
+.bp-library-filters.is-dragging .bp-filter-button {
+  cursor: grabbing;
+  user-select: none;
 }
 
 .bp-filter-button {
@@ -809,6 +838,19 @@ body.bp-is-resizing-horizontal * {
   padding: 4px 18px 24px 24px;
   overflow-y: auto;
   overscroll-behavior: contain;
+  transition: box-shadow 100ms ease;
+}
+
+.bp-layer-stack.is-drag-active {
+  scroll-behavior: auto;
+}
+
+.bp-layer-stack.is-auto-scrolling-up {
+  box-shadow: inset 0 22px 18px -20px rgba(11, 92, 255, 0.72);
+}
+
+.bp-layer-stack.is-auto-scrolling-down {
+  box-shadow: inset 0 -22px 18px -20px rgba(11, 92, 255, 0.72);
 }
 
 .bp-layer-stack::before {
@@ -1582,11 +1624,29 @@ body.bp-is-resizing-horizontal * {
   color: var(--bp-danger);
 }
 
+.bp-preview-error {
+  min-height: 0;
+  pointer-events: auto;
+}
+
 .bp-preview-error p {
-  max-height: 100px;
+  width: min(100%, 460px);
+  max-height: min(180px, calc(100% - 72px));
+  padding: 8px 10px;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  touch-action: pan-y;
   color: var(--bp-danger);
   font-family: var(--bp-code-font);
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bp-preview-error p:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--bp-danger) 55%, white);
+  outline-offset: 2px;
 }
 
 .bp-spinner {
@@ -1715,6 +1775,22 @@ body.bp-is-resizing-horizontal * {
   overflow: hidden !important;
   opacity: 0 !important;
   pointer-events: none !important;
+}
+
+html.bp-restoring-project .bp-app-shell {
+  visibility: hidden;
+}
+
+html.bp-restoring-project body::before {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  content: "Restoring project\2026";
+  color: var(--bp-text-secondary);
+  background: var(--bp-canvas);
+  font: 600 13px/1.4 var(--bp-ui-font);
 }
 
 .bp-statusbar {

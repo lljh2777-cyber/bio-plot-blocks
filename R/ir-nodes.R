@@ -121,7 +121,8 @@ bp_is_unset <- function(argument) {
 }
 
 bp_value_from_text <- function(text, control = "expression", state = "explicit") {
-  text <- trimws(as.character(text %||% ""))
+  raw_text <- as.character(text %||% "")
+  text <- trimws(raw_text)
   if (state == "explicit_null") return(bp_null())
   if (state == "explicit_na") return(bp_na())
   if (state == "raw_expression") return(bp_raw_expression(text))
@@ -146,7 +147,7 @@ bp_value_from_text <- function(text, control = "expression", state = "explicit")
     },
     enum = bp_character(text),
     string =,
-    text =,
+    text = bp_character(raw_text),
     color =,
     color_or_expression = bp_character(text),
     symbol =,
@@ -162,6 +163,15 @@ bp_value_from_text <- function(text, control = "expression", state = "explicit")
     code = bp_raw_expression(text),
     bp_raw_expression(text)
   )
+}
+
+bp_value_to_input_text <- function(value, control = "expression") {
+  if (is.null(value)) return("")
+  if (control %in% c("text", "string", "color", "color_or_expression", "enum") &&
+      identical(bp_value_type(value), "RCharacter")) {
+    return(as.character(value$value %||% ""))
+  }
+  bp_value_to_source(value)
 }
 
 bp_value_to_source <- function(value) {

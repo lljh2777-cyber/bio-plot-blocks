@@ -18,6 +18,23 @@ test_that("project JSON restores typed module state", {
   expect_identical(restored$modules[[2]]$arguments$alpha$state, "explicit")
 })
 
+test_that("browser persistence envelope preserves the current project", {
+  project <- bp_project_from_template("bio.volcano.basic", registry)
+  project$name <- "Persisted browser project"
+  selected <- project$modules[[6]]$instance_id
+  payload <- jsonlite::toJSON(
+    list(format_version = 1L, project = project, selected = selected),
+    auto_unbox = TRUE,
+    null = "null",
+    digits = NA
+  )
+  restored <- jsonlite::fromJSON(payload, simplifyVector = FALSE)
+  restored$project <- bp_migrate_project(restored$project)
+  expect_silent(bp_validate_project(restored$project, registry))
+  expect_identical(restored$selected, selected)
+  expect_identical(bp_generate_code(restored$project, registry), bp_generate_code(project, registry))
+})
+
 test_that("scope scan permits only visible ggplot2 add-on calls", {
   project <- bp_project_from_template("bio.volcano.basic", registry)
   scope <- bp_scope_scan(bp_generate_code(project, registry, include_setup = TRUE))

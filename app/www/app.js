@@ -2,10 +2,26 @@
   "use strict";
 
   let draggedCard = null;
+  let dragScrollStack = null;
+  let dragAutoScrollFrame = null;
+  let dragAutoScrollSpeed = 0;
+  let dragPointerX = 0;
+  let dragPointerY = 0;
   let activeResize = null;
+  let activeFilterScroll = null;
+  let suppressFilterClickUntil = 0;
   let helpLastFocus = null;
   let helpLanguage = "zh";
   let helpScrollFrame = null;
+  let focusedTextInput = null;
+  let textInputRestoreActive = false;
+  let textInputObserver = null;
+  let projectPersistenceStarted = false;
+  let projectPersistenceReady = false;
+  let projectPersistenceTimer = null;
+  let projectPersistenceRetry = null;
+  let projectPersistenceObserver = null;
+  const projectStorageKey = "bioplotblocks.project.v0.2";
   const pendingInputTimers = new Map();
   const resizeConfig = {
     library: { property: "--bp-library-width", selector: ".bp-library-panel", min: 220 },
@@ -149,6 +165,127 @@
     document.body.classList.remove("bp-is-resizing", "bp-is-resizing-vertical", "bp-is-resizing-horizontal");
     activeResize = null;
     refreshResizeHandles();
+  }
+
+  function finishFilterScroll(pointerId) {
+    if (!activeFilterScroll || (pointerId != null && pointerId !== activeFilterScroll.pointerId)) return false;
+    activeFilterScroll.strip.classList.remove("is-dragging");
+    if (activeFilterScroll.moved) suppressFilterClickUntil = performance.now() + 100;
+    activeFilterScroll = null;
+    return true;
+  }
+
+  function revealActiveLibraryFilter() {
+    const strip = document.querySelector(".bp-library-filters");
+    const active = strip ? strip.querySelector(".bp-filter-button.is-active") : null;
+    if (!strip || !active) return;
+    const stripRect = strip.getBoundingClientRect();
+    const activeRect = active.getBoundingClientRect();
+    const padding = 6;
+    if (activeRect.right > stripRect.right - padding) {
+      strip.scrollLeft += activeRect.right - stripRect.right + padding;
+    } else if (activeRect.left < stripRect.left + padding) {
+      strip.scrollLeft -= stripRect.left - activeRect.left + padding;
+    }
+  }
+
+  function scheduleActiveLibraryFilter(value) {
+    [80, 200, 450, 800].forEach(function (delay) {
+      window.setTimeout(function () {
+        const active = document.querySelector(".bp-library-filters .bp-filter-button.is-active");
+        if (active && active.dataset.filter === value) revealActiveLibraryFilter();
+      }, delay);
+    });
+  }
+
+  function reorderDraggedAtPoint(stack, clientY) {
+    if (!draggedCard || !stack) return;
+    const draggedNode = draggedCard.closest(".bp-layer-node");
+    if (!draggedNode) return;
+    const nodes = Array.from(stack.querySelectorAll(".bp-layer-node")).filter(function (node) {
+      return node !== draggedNode;
+    });
+    if (!nodes.length) return;
+
+    let target = null;
+    let insertBefore = false;
+    for (const node of nodes) {
+      const rect = node.getBoundingClientRect();
+      if (clientY < rect.top + rect.height / 2) {
+        target = node;
+        insertBefore = true;
+        break;
+      }
+    }
+    if (!target) target = nodes[nodes.length - 1];
+    const reference = insertBefore ? target : target.nextSibling;
+    if (reference !== draggedNode && draggedNode.nextSibling !== reference) {
+      stack.insertBefore(draggedNode, reference);
+    }
+  }
+
+  function stopDragAutoScrollLoop() {
+    if (dragAutoScrollFrame != null) window.cancelAnimationFrame(dragAutoScrollFrame);
+    dragAutoScrollFrame = null;
+    dragAutoScrollSpeed = 0;
+    if (dragScrollStack) {
+      dragScrollStack.classList.remove("is-auto-scrolling-up", "is-auto-scrolling-down");
+    }
+  }
+
+  function clearDragScrollState() {
+    stopDragAutoScrollLoop();
+    if (dragScrollStack) dragScrollStack.classList.remove("is-drag-active");
+    dragScrollStack = null;
+    dragPointerX = 0;
+    dragPointerY = 0;
+  }
+
+  function runDragAutoScroll() {
+    dragAutoScrollFrame = null;
+    if (!draggedCard || !dragScrollStack || dragAutoScrollSpeed === 0) return;
+    const before = dragScrollStack.scrollTop;
+    dragScrollStack.scrollTop += dragAutoScrollSpeed;
+    if (dragScrollStack.scrollTop === before) {
+      stopDragAutoScrollLoop();
+      return;
+    }
+    reorderDraggedAtPoint(dragScrollStack, dragPointerY);
+    dragAutoScrollFrame = window.requestAnimationFrame(runDragAutoScroll);
+  }
+
+  function updateDragAutoScroll(stack, clientX, clientY) {
+    if (!stack) return;
+    if (dragScrollStack && dragScrollStack !== stack) {
+      dragScrollStack.classList.remove("is-drag-active", "is-auto-scrolling-up", "is-auto-scrolling-down");
+    }
+    dragScrollStack = stack;
+    dragScrollStack.classList.add("is-drag-active");
+    dragPointerX = clientX;
+    dragPointerY = clientY;
+
+    const rect = stack.getBoundingClientRect();
+    const edge = Math.min(72, rect.height * 0.22);
+    const outside = 56;
+    let speed = 0;
+    const withinHorizontalRange = clientX >= rect.left - 72 && clientX <= rect.right + 72;
+    if (withinHorizontalRange && clientY >= rect.top - outside && clientY < rect.top + edge) {
+      const strength = clamp((rect.top + edge - clientY) / (edge + outside), 0, 1);
+      speed = -(4 + 18 * strength);
+    } else if (withinHorizontalRange && clientY <= rect.bottom + outside && clientY > rect.bottom - edge) {
+      const strength = clamp((clientY - (rect.bottom - edge)) / (edge + outside), 0, 1);
+      speed = 4 + 18 * strength;
+    }
+
+    dragAutoScrollSpeed = speed;
+    stack.classList.toggle("is-auto-scrolling-up", speed < 0);
+    stack.classList.toggle("is-auto-scrolling-down", speed > 0);
+    if (speed === 0) {
+      if (dragAutoScrollFrame != null) window.cancelAnimationFrame(dragAutoScrollFrame);
+      dragAutoScrollFrame = null;
+      return;
+    }
+    if (dragAutoScrollFrame == null) dragAutoScrollFrame = window.requestAnimationFrame(runDragAutoScroll);
   }
 
   function helpView() {
@@ -356,6 +493,221 @@
     sendInput(name, payload);
   }
 
+  function readStoredProject() {
+    try {
+      return window.localStorage.getItem(projectStorageKey);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function removeStoredProject() {
+    try {
+      window.localStorage.removeItem(projectStorageKey);
+    } catch (error) {
+      // Storage can be unavailable in privacy-restricted browser contexts.
+    }
+  }
+
+  function persistProjectState() {
+    projectPersistenceTimer = null;
+    if (!projectPersistenceReady) return;
+    const transport = document.getElementById("project_state_raw");
+    const value = transport ? (transport.value || transport.textContent || "") : "";
+    if (!value) return;
+    try {
+      window.localStorage.setItem(projectStorageKey, value);
+      document.documentElement.dataset.bpPersistence = "saved";
+    } catch (error) {
+      document.documentElement.dataset.bpPersistence = "unavailable";
+      // The editor remains usable when storage is disabled or its quota is full.
+    }
+  }
+
+  function scheduleProjectPersistence() {
+    if (!projectPersistenceReady) return;
+    if (projectPersistenceTimer) window.clearTimeout(projectPersistenceTimer);
+    projectPersistenceTimer = window.setTimeout(persistProjectState, 120);
+  }
+
+  function initializeProjectPersistence() {
+    if (projectPersistenceStarted) return;
+    const socket = window.Shiny && window.Shiny.shinyapp ? window.Shiny.shinyapp.$socket : null;
+    if (!socket || socket.readyState !== 1) {
+      document.documentElement.dataset.bpPersistence = "waiting";
+      if (!projectPersistenceRetry) {
+        projectPersistenceRetry = window.setTimeout(function () {
+          projectPersistenceRetry = null;
+          initializeProjectPersistence();
+        }, 50);
+      }
+      return;
+    }
+    projectPersistenceStarted = true;
+    document.documentElement.dataset.bpPersistence = "starting";
+    window.Shiny.addCustomMessageHandler("bp_project_restore_status", function (message) {
+      if (!message || !message.ok) removeStoredProject();
+      projectPersistenceReady = true;
+      document.documentElement.dataset.bpPersistence = message && message.ok ? "restored" : "reset";
+      document.documentElement.classList.remove("bp-restoring-project");
+      scheduleProjectPersistence();
+    });
+    projectPersistenceObserver = new MutationObserver(scheduleProjectPersistence);
+    projectPersistenceObserver.observe(document.body, { childList: true, subtree: true });
+
+    const saved = readStoredProject();
+    if (saved) {
+      document.documentElement.classList.add("bp-restoring-project");
+      sendInput("restore_project", { json: saved });
+      return;
+    }
+    projectPersistenceReady = true;
+    document.documentElement.dataset.bpPersistence = "ready";
+    scheduleProjectPersistence();
+  }
+
+  function isEditableTextInput(element) {
+    if (!(element instanceof HTMLInputElement) && !(element instanceof HTMLTextAreaElement)) return false;
+    if (element.disabled || element.readOnly) return false;
+    if (element instanceof HTMLTextAreaElement) return true;
+    return !["button", "checkbox", "color", "file", "hidden", "image", "radio", "range", "reset", "submit"].includes(element.type);
+  }
+
+  function textInputIdentity(element) {
+    if (!isEditableTextInput(element)) return null;
+    if (element.id) return { kind: "id", id: element.id };
+    if (element.classList.contains("bp-param-value")) {
+      return {
+        kind: "parameter",
+        instanceId: element.dataset.instanceId || "",
+        parameter: element.dataset.param || ""
+      };
+    }
+    if (element.classList.contains("bp-aes-value")) {
+      return {
+        kind: "aesthetic",
+        instanceId: element.dataset.instanceId || "",
+        parameter: element.dataset.param || "",
+        aesthetic: element.dataset.aesKey || ""
+      };
+    }
+    if (element.classList.contains("bp-assignment-target")) return { kind: "assignment" };
+    return null;
+  }
+
+  function sameTextInputIdentity(left, right) {
+    return Boolean(left && right) && left.kind === right.kind &&
+      left.id === right.id && left.instanceId === right.instanceId &&
+      left.parameter === right.parameter && left.aesthetic === right.aesthetic;
+  }
+
+  function findTextInput(identity) {
+    if (!identity) return null;
+    if (identity.kind === "id") return document.getElementById(identity.id);
+    if (identity.kind === "assignment") return document.querySelector(".bp-assignment-target");
+    const selector = identity.kind === "aesthetic" ? ".bp-aes-value" : ".bp-param-value";
+    return Array.from(document.querySelectorAll(selector)).find(function (element) {
+      if ((element.dataset.instanceId || "") !== identity.instanceId ||
+          (element.dataset.param || "") !== identity.parameter) return false;
+      return identity.kind !== "aesthetic" || (element.dataset.aesKey || "") === identity.aesthetic;
+    }) || null;
+  }
+
+  function rememberTextInput(element) {
+    const identity = textInputIdentity(element);
+    if (!identity) return;
+    let selectionStart = null;
+    let selectionEnd = null;
+    let selectionDirection = "none";
+    try {
+      selectionStart = element.selectionStart;
+      selectionEnd = element.selectionEnd;
+      selectionDirection = element.selectionDirection || "none";
+    } catch (error) {
+      selectionStart = null;
+      selectionEnd = null;
+    }
+    focusedTextInput = {
+      identity: identity,
+      value: element.value,
+      selectionStart: selectionStart,
+      selectionEnd: selectionEnd,
+      selectionDirection: selectionDirection,
+      scrollLeft: element.scrollLeft,
+      scrollTop: element.scrollTop
+    };
+  }
+
+  function scheduleTextInputRestore() {
+    if (!focusedTextInput || textInputRestoreActive) return;
+    textInputRestoreActive = true;
+    try {
+      const snapshot = focusedTextInput;
+      if (!snapshot) return;
+      const active = document.activeElement;
+      if (isEditableTextInput(active)) {
+        if (sameTextInputIdentity(textInputIdentity(active), snapshot.identity)) rememberTextInput(active);
+        return;
+      }
+      if (active && active !== document.body && active !== document.documentElement) return;
+      const replacement = findTextInput(snapshot.identity);
+      if (!isEditableTextInput(replacement)) return;
+      const parentDetails = replacement.closest("details");
+      if (parentDetails) parentDetails.open = true;
+      const pageX = window.scrollX;
+      const pageY = window.scrollY;
+      if (replacement.value !== snapshot.value) replacement.value = snapshot.value;
+      replacement.focus({ preventScroll: true });
+      if (snapshot.selectionStart !== null && typeof replacement.setSelectionRange === "function") {
+        const end = replacement.value.length;
+        try {
+          replacement.setSelectionRange(
+            Math.min(snapshot.selectionStart, end),
+            Math.min(snapshot.selectionEnd, end),
+            snapshot.selectionDirection
+          );
+        } catch (error) {
+          // Number-like inputs do not expose a text selection API.
+        }
+      }
+      replacement.scrollLeft = snapshot.scrollLeft;
+      replacement.scrollTop = snapshot.scrollTop;
+      if (window.scrollX !== pageX || window.scrollY !== pageY) window.scrollTo(pageX, pageY);
+    } finally {
+      textInputRestoreActive = false;
+    }
+  }
+
+  function initializeTextInputContinuity() {
+    if (textInputObserver || !document.body) return;
+    document.addEventListener("focusin", function (event) {
+      if (isEditableTextInput(event.target)) rememberTextInput(event.target);
+    }, true);
+    document.addEventListener("input", function (event) {
+      if (isEditableTextInput(event.target)) rememberTextInput(event.target);
+    }, true);
+    ["keyup", "mouseup", "select"].forEach(function (eventName) {
+      document.addEventListener(eventName, function () {
+        if (isEditableTextInput(document.activeElement)) rememberTextInput(document.activeElement);
+      }, true);
+    });
+    document.addEventListener("focusout", function (event) {
+      if (!isEditableTextInput(event.target)) return;
+      const previous = event.target;
+      window.setTimeout(function () {
+        if (!previous.isConnected) {
+          scheduleTextInputRestore();
+          return;
+        }
+        const active = document.activeElement;
+        if (isEditableTextInput(active)) rememberTextInput(active);
+        else focusedTextInput = null;
+      }, 0);
+    }, true);
+    textInputObserver = new MutationObserver(scheduleTextInputRestore);
+    textInputObserver.observe(document.body, { childList: true, subtree: true });
+  }
+
   function copyGeneratedCode() {
     const source = document.getElementById("generated_code_raw");
     const button = document.getElementById("copy-generated-code");
@@ -408,7 +760,12 @@
 
     const filter = closest(event.target, ".bp-filter-button");
     if (filter) {
+      if (performance.now() < suppressFilterClickUntil) {
+        event.preventDefault();
+        return;
+      }
       sendInput("library_filter", { value: filter.dataset.filter });
+      scheduleActiveLibraryFilter(filter.dataset.filter);
       return;
     }
 
@@ -569,40 +926,84 @@
     const card = closest(event.target, ".bp-layer-card");
     if (!card) return;
     draggedCard = card;
+    dragScrollStack = card.closest(".bp-layer-stack");
+    if (dragScrollStack) dragScrollStack.classList.add("is-drag-active");
+    dragPointerX = event.clientX;
+    dragPointerY = event.clientY;
     card.classList.add("is-dragging");
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", card.dataset.instanceId || "");
   });
 
   document.addEventListener("dragover", function (event) {
-    const stack = closest(event.target, ".bp-layer-stack");
-    if (!stack || !draggedCard) return;
-    event.preventDefault();
-    const nodes = Array.from(stack.querySelectorAll(".bp-layer-node"));
-    const targetNode = closest(event.target, ".bp-layer-node");
-    const draggedNode = draggedCard.closest(".bp-layer-node");
-    if (!targetNode || !draggedNode || targetNode === draggedNode) return;
-    const targetRect = targetNode.getBoundingClientRect();
-    const before = event.clientY < targetRect.top + targetRect.height / 2;
-    stack.insertBefore(draggedNode, before ? targetNode : targetNode.nextSibling);
+    if (!draggedCard) return;
+    const directStack = closest(event.target, ".bp-layer-stack");
+    const stack = directStack || dragScrollStack || draggedCard.closest(".bp-layer-stack");
+    if (!stack) return;
+    if (directStack) event.preventDefault();
+    updateDragAutoScroll(stack, event.clientX, event.clientY);
+    reorderDraggedAtPoint(stack, event.clientY);
   });
 
   document.addEventListener("drop", function (event) {
-    const stack = closest(event.target, ".bp-layer-stack");
-    if (!stack || !draggedCard) return;
+    if (!draggedCard) return;
+    const directStack = closest(event.target, ".bp-layer-stack");
+    const stack = directStack || dragScrollStack;
+    if (!stack) return;
+    const rect = stack.getBoundingClientRect();
+    const withinDropZone = event.clientX >= rect.left && event.clientX <= rect.right
+      && event.clientY >= rect.top - 32 && event.clientY <= rect.bottom + 32;
+    if (!withinDropZone) return;
     event.preventDefault();
+    reorderDraggedAtPoint(stack, event.clientY);
     const ids = Array.from(stack.querySelectorAll(".bp-layer-card")).map(function (card) {
       return card.dataset.instanceId;
     });
+    clearDragScrollState();
     sendInput("reorder_modules", { ids: ids });
   });
 
   document.addEventListener("dragend", function () {
     if (draggedCard) draggedCard.classList.remove("is-dragging");
+    clearDragScrollState();
     draggedCard = null;
   });
 
+  document.addEventListener("wheel", function (event) {
+    if (!draggedCard) return;
+    const stack = closest(event.target, ".bp-layer-stack") || dragScrollStack || draggedCard.closest(".bp-layer-stack");
+    if (!stack) return;
+    const rawDelta = event.deltaY || event.deltaX;
+    if (!rawDelta) return;
+    const multiplier = event.deltaMode === 1 ? 24 : event.deltaMode === 2 ? stack.clientHeight : 1;
+    const delta = rawDelta * multiplier;
+    const maximum = stack.scrollHeight - stack.clientHeight;
+    const canScroll = delta > 0 ? stack.scrollTop < maximum : stack.scrollTop > 0;
+    if (!canScroll) return;
+    event.preventDefault();
+    stack.scrollTop += delta;
+    dragScrollStack = stack;
+    if (event.clientX || event.clientY) {
+      dragPointerX = event.clientX;
+      dragPointerY = event.clientY;
+    }
+    reorderDraggedAtPoint(stack, dragPointerY || stack.getBoundingClientRect().top + stack.clientHeight / 2);
+  }, { passive: false, capture: true });
+
   document.addEventListener("pointerdown", function (event) {
+    const filterStrip = closest(event.target, ".bp-library-filters");
+    if (filterStrip) {
+      if ((event.pointerType !== "touch" && event.button !== 0) || filterStrip.scrollWidth <= filterStrip.clientWidth) return;
+      activeFilterScroll = {
+        strip: filterStrip,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startScrollLeft: filterStrip.scrollLeft,
+        moved: false
+      };
+      return;
+    }
+
     const handle = closest(event.target, ".bp-resize-handle[data-resize-target]");
     if (!handle || event.button !== 0 || window.innerWidth <= 1030) return;
     event.preventDefault();
@@ -622,17 +1023,50 @@
   });
 
   document.addEventListener("pointermove", function (event) {
+    if (activeFilterScroll && event.pointerId === activeFilterScroll.pointerId) {
+      const delta = event.clientX - activeFilterScroll.startX;
+      if (!activeFilterScroll.moved && Math.abs(delta) > 4) {
+        activeFilterScroll.moved = true;
+        activeFilterScroll.strip.classList.add("is-dragging");
+        if (typeof activeFilterScroll.strip.setPointerCapture === "function") {
+          activeFilterScroll.strip.setPointerCapture(event.pointerId);
+        }
+      }
+      if (activeFilterScroll.moved) {
+        event.preventDefault();
+        activeFilterScroll.strip.scrollLeft = activeFilterScroll.startScrollLeft - delta;
+      }
+      return;
+    }
+
     if (!activeResize || event.pointerId !== activeResize.pointerId) return;
     event.preventDefault();
     resizeFromPointer(activeResize.target, event.clientX, event.clientY, activeResize.grabOffset);
   });
 
   document.addEventListener("pointerup", function (event) {
+    if (finishFilterScroll(event.pointerId)) return;
     if (!activeResize || event.pointerId !== activeResize.pointerId) return;
     finishResize();
   });
 
-  document.addEventListener("pointercancel", finishResize);
+  document.addEventListener("pointercancel", function (event) {
+    finishFilterScroll(event.pointerId);
+    finishResize();
+  });
+
+  document.addEventListener("wheel", function (event) {
+    if (event.defaultPrevented) return;
+    const filterStrip = closest(event.target, ".bp-library-filters");
+    if (!filterStrip || filterStrip.scrollWidth <= filterStrip.clientWidth) return;
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    if (!delta) return;
+    const maximum = filterStrip.scrollWidth - filterStrip.clientWidth;
+    const canScroll = delta > 0 ? filterStrip.scrollLeft < maximum : filterStrip.scrollLeft > 0;
+    if (!canScroll) return;
+    event.preventDefault();
+    filterStrip.scrollLeft += delta;
+  }, { passive: false });
 
   document.addEventListener("dblclick", function (event) {
     const handle = closest(event.target, ".bp-resize-handle[data-resize-target]");
@@ -713,7 +1147,11 @@
     refreshResizeHandles();
     setHelpLanguage("zh");
     initializeHelpNavigation();
+    initializeTextInputContinuity();
+    initializeProjectPersistence();
   }
+
+  if (readStoredProject()) document.documentElement.classList.add("bp-restoring-project");
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", initializeInterface, { once: true });
@@ -721,5 +1159,8 @@
     window.requestAnimationFrame(initializeInterface);
   }
   window.addEventListener("resize", constrainResizeLayout);
-  document.addEventListener("shiny:connected", refreshResizeHandles);
+  document.addEventListener("shiny:connected", function () {
+    refreshResizeHandles();
+    initializeProjectPersistence();
+  });
 })();

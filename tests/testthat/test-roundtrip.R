@@ -20,3 +20,20 @@ test_that("unsupported package calls remain Raw R", {
   expect_identical(parsed$modules[[2]]$module_id, "core.raw_r")
   expect_match(parsed$modules[[2]]$source_text, "ggrepel::geom_text_repel")
 })
+
+test_that("text controls round-trip without accumulating R string escapes", {
+  input <- "bar plot"
+  for (i in seq_len(4)) {
+    value <- bp_value_from_text(input, "text")
+    expect_identical(bp_value_to_source(value), '"bar plot"')
+    input <- bp_value_to_input_text(value, "text")
+  }
+  expect_identical(input, "bar plot")
+})
+
+test_that("text controls preserve intentional whitespace", {
+  value <- bp_value_from_text("  bar plot  ", "text")
+  expect_identical(value$value, "  bar plot  ")
+  expect_identical(bp_value_to_input_text(value, "text"), "  bar plot  ")
+  expect_identical(bp_value_to_source(value), '"  bar plot  "')
+})

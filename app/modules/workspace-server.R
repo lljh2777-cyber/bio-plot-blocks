@@ -140,6 +140,12 @@ bp_argument_value <- function(argument, parameter) {
   bp_value_to_source(value)
 }
 
+bp_argument_input_value <- function(argument, parameter) {
+  value <- argument$value
+  if (is.null(value)) value <- parameter$formal_default
+  bp_value_to_input_text(value, parameter$ui_control %||% "expression")
+}
+
 bp_state_select <- function(instance_id, name, state) {
   options <- bp_state_options()
   htmltools::tags$select(
@@ -156,7 +162,7 @@ bp_state_select <- function(instance_id, name, state) {
 
 bp_value_control <- function(instance_id, name, argument, parameter) {
   control <- parameter$ui_control %||% "expression"
-  value <- bp_argument_value(argument, parameter)
+  value <- bp_argument_input_value(argument, parameter)
   common_attrs <- list(
     class = "bp-param-value",
     `data-instance-id` = instance_id,
@@ -617,6 +623,23 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     htmltools::tags$textarea(id = "generated_code_raw", class = "bp-code-transport", code)
   })
 
+  output$project_state_transport <- shiny::renderUI({
+    payload <- jsonlite::toJSON(
+      list(format_version = 1L, project = state$project, selected = state$selected),
+      auto_unbox = TRUE,
+      null = "null",
+      digits = NA
+    )
+    htmltools::tags$textarea(
+      id = "project_state_raw",
+      class = "bp-code-transport",
+      readonly = "readonly",
+      tabindex = "-1",
+      `aria-hidden` = "true",
+      as.character(payload)
+    )
+  })
+
   output$preview_image <- shiny::renderUI({
     path <- state$preview_image
     status <- state$preview_status
@@ -634,7 +657,17 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       return(htmltools::tags$div(class = "bp-preview-overlay", htmltools::tags$span(class = "bp-spinner"), htmltools::tags$strong("Running real ggplot2"), htmltools::tags$p("The editor remains responsive; cancel is available.")))
     }
     if (identical(status, "error")) {
-      return(htmltools::tags$div(class = "bp-preview-overlay bp-preview-error", bp_icon("warning", 28), htmltools::tags$strong("Preview failed"), htmltools::tags$p(state$preview_result$error %||% "Unknown R error")))
+      return(htmltools::tags$div(
+        class = "bp-preview-overlay bp-preview-error",
+        bp_icon("warning", 28),
+        htmltools::tags$strong("Preview failed"),
+        htmltools::tags$p(
+          role = "region",
+          tabindex = "0",
+          `aria-label` = "Preview error details",
+          state$preview_result$error %||% "Unknown R error"
+        )
+      ))
     }
     if (identical(status, "cancelled")) {
       return(htmltools::tags$div(class = "bp-preview-overlay", bp_icon("info", 28), htmltools::tags$strong("Preview cancelled"), htmltools::tags$p("Your module state and code were not changed.")))
@@ -889,6 +922,37 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     state$expression_edit <- NULL
     state$preview_status <- "initial"
   }, ignoreInit = TRUE)
+
+  shiny::observeEvent(input$restore_project, {
+    payload <- input$restore_project
+    restored <- tryCatch({
+      envelope <- jsonlite::fromJSON(payload$json %||% "", simplifyVector = FALSE)
+      project <- bp_migrate_project(envelope$project %||% envelope)
+      bp_validate_project(project, registry)
+      list(project = project, selected = envelope$selected %||% NULL)
+    }, error = identity)
+
+    if (inherits(restored, "error")) {
+      session$onFlushed(function() {
+        session$sendCustomMessage(
+          "bp_project_restore_status",
+          list(ok = FALSE, message = conditionMessage(restored))
+        )
+      }, once = TRUE)
+      return()
+    }
+
+    commit(restored$project, restored$selected, record_history = FALSE)
+    state$history <- list()
+    state$future <- list()
+    state$expression_edit <- NULL
+    state$preview_status <- "initial"
+    state$preview_result <- NULL
+    shiny::updateTextInput(session, "project_name", value = restored$project$name)
+    session$onFlushed(function() {
+      session$sendCustomMessage("bp_project_restore_status", list(ok = TRUE))
+    }, once = TRUE)
+  }, ignoreInit = FALSE, ignoreNULL = TRUE, priority = 1000)
 
   shiny::observeEvent(input$import_r, {
     current <- tryCatch(bp_generate_code(state$project, registry), error = function(error) "")
