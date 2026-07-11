@@ -13,6 +13,7 @@ source_order <- c(
 for (file in source_order) {
   sys.source(file.path(root, "R", file), envir = globalenv())
 }
+sys.source(file.path(app_dir, "modules", "help-ui.R"), envir = globalenv())
 sys.source(file.path(app_dir, "modules", "workspace-ui.R"), envir = globalenv())
 sys.source(file.path(app_dir, "modules", "workspace-server.R"), envir = globalenv())
 

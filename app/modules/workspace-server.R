@@ -429,7 +429,12 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     if (!length(specs)) {
       return(htmltools::tags$div(class = "bp-library-empty", "No matching functions"))
     }
-    htmltools::tags$div(class = "bp-library-list", lapply(specs, bp_library_row))
+    htmltools::tags$div(
+      class = "bp-library-list",
+      tabindex = "0",
+      `aria-label` = "Scrollable function library",
+      lapply(specs, bp_library_row)
+    )
   })
 
   output$template_library <- shiny::renderUI({
@@ -441,7 +446,12 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     if (!length(visible)) return(NULL)
     htmltools::tagList(
       htmltools::tags$div(class = "bp-library-heading bp-template-heading", "Templates"),
-      htmltools::tags$div(class = "bp-library-list bp-template-list", lapply(visible, bp_template_row))
+      htmltools::tags$div(
+        class = "bp-library-list bp-template-list",
+        tabindex = "0",
+        `aria-label` = "Scrollable template library",
+        lapply(visible, bp_template_row)
+      )
     )
   })
 
@@ -483,6 +493,8 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     }
     htmltools::tags$div(
       class = "bp-layer-stack",
+      tabindex = "0",
+      `aria-label` = "Scrollable layer stack",
       lapply(seq_along(modules), function(index) {
         instance <- modules[[index]]
         spec <- bp_get_spec(registry, instance$module_id)

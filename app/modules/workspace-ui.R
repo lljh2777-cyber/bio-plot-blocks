@@ -7,6 +7,25 @@ bp_action_button <- function(id, label, icon, primary = FALSE, class = NULL, tit
   )
 }
 
+bp_resize_handle <- function(orientation, target, label) {
+  htmltools::tags$div(
+    class = paste("bp-resize-handle", paste0("bp-resize-", orientation)),
+    role = "separator",
+    tabindex = "0",
+    `aria-orientation` = orientation,
+    `aria-label` = label,
+    `data-resize-target` = target,
+    title = "Drag to resize; double-click to reset",
+    htmltools::tags$span(
+      class = "bp-resize-grip",
+      `aria-hidden` = "true",
+      htmltools::tags$span(),
+      htmltools::tags$span(),
+      htmltools::tags$span()
+    )
+  )
+}
+
 bp_workspace_ui <- function(root) {
   shiny::fluidPage(
     htmltools::tags$head(
@@ -52,6 +71,17 @@ bp_workspace_ui <- function(root) {
             class = "bp-command-button"
           ),
           htmltools::tags$button(
+            id = "open-help-button",
+            type = "button",
+            class = "bp-command-button bp-help-button",
+            title = "Help / 使用手册",
+            `aria-label` = "Open Help / 打开使用手册",
+            `aria-haspopup` = "dialog",
+            `aria-controls` = "bp-help-view",
+            `aria-expanded` = "false",
+            htmltools::tagList(bp_icon("help", 17), htmltools::tags$span(class = "bp-command-label", "Help"))
+          ),
+          htmltools::tags$button(
             id = "open-project-button",
             type = "button",
             class = "bp-icon-button bp-open-project",
@@ -80,6 +110,7 @@ bp_workspace_ui <- function(root) {
           shiny::uiOutput("module_library"),
           shiny::uiOutput("template_library")
         ),
+        bp_resize_handle("vertical", "library", "Resize module library and layer stack"),
         htmltools::tags$section(
           class = "bp-panel bp-stack-panel",
           `aria-label` = "Layer stack",
@@ -100,12 +131,14 @@ bp_workspace_ui <- function(root) {
           shiny::uiOutput("assignment_editor"),
           shiny::uiOutput("layer_stack")
         ),
+        bp_resize_handle("vertical", "inspector", "Resize layer stack and parameter inspector"),
         htmltools::tags$aside(
           class = "bp-panel bp-inspector-panel",
           `aria-label` = "Parameter inspector",
           shiny::uiOutput("parameter_inspector")
         )
       ),
+      bp_resize_handle("horizontal", "workspace", "Resize upper and lower workspaces"),
       htmltools::tags$section(
         class = "bp-lower-workspace",
         htmltools::tags$article(
@@ -129,6 +162,7 @@ bp_workspace_ui <- function(root) {
             shiny::uiOutput("preview_overlay")
           )
         ),
+        bp_resize_handle("vertical", "preview", "Resize preview and generated code"),
         htmltools::tags$article(
           class = "bp-panel bp-code-panel",
           htmltools::tags$div(
@@ -162,6 +196,7 @@ bp_workspace_ui <- function(root) {
         shiny::uiOutput("status_bar")
       )
     ),
+    bp_help_manual_ui(),
     htmltools::tags$div(
       class = "bp-hidden-file-input",
       shiny::fileInput("project_file", label = NULL, accept = c("application/json", ".json"))

@@ -1,5 +1,6 @@
 test_that("workspace UI renders the full primary surface", {
   skip_if_not_installed("shiny")
+  source(file.path(root, "app", "modules", "help-ui.R"), local = environment())
   source(file.path(root, "app", "modules", "workspace-ui.R"), local = environment())
   ui <- bp_workspace_ui(root)
   html <- htmltools::renderTags(ui)$html
@@ -7,4 +8,7 @@ test_that("workspace UI renders the full primary surface", {
   expect_match(html, "Layer stack")
   expect_match(html, "Generated R")
   expect_match(html, "Run preview")
+  expect_match(html, "open-help-button")
+  expect_match(html, "使用手册")
+  expect_match(html, "User manual")
 })

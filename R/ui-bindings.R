@@ -24,6 +24,7 @@ bp_icon <- function(name, size = 18, label = NULL) {
     check = list(circle(12, 12, 9), polyline("8,12 11,15 17,9")),
     warning = list(path("M12 3 2.8 20h18.4L12 3Z"), line(12, 9, 12, 14), circle(12, 17, 0.6, fill = "currentColor", stroke = "none")),
     info = list(circle(12, 12, 9), line(12, 11, 12, 17), circle(12, 7.5, 0.7, fill = "currentColor", stroke = "none")),
+    help = list(circle(12, 12, 9), path("M9.4 9a2.8 2.8 0 1 1 4.4 2.3c-1.2.8-1.8 1.3-1.8 2.7"), circle(12, 17.4, 0.7, fill = "currentColor", stroke = "none")),
     code = list(polyline("8,7 3,12 8,17"), polyline("16,7 21,12 16,17"), line(14, 4, 10, 20)),
     copy = list(rect(9, 9, 11, 11, rx = 2), path("M15 9V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h4")),
     download = list(path("M12 3v12"), polyline("7,10 12,15 17,10"), path("M5 20h14")),
