@@ -54,11 +54,13 @@ bp_workspace_ui <- function(root) {
           htmltools::tags$span(class = "bp-live-dot", `aria-hidden` = "true"),
           htmltools::tags$span("R 4.5.1 · ggplot2 4.0.1")
         ),
+        htmltools::tags$div(class = "bp-active-data-source", shiny::uiOutput("active_data_source_badge")),
         htmltools::tags$nav(
           class = "bp-command-bar",
           `aria-label` = "Project commands",
           bp_action_button("new_project", "New", "plus"),
           bp_action_button("import_r", "Import R", "import"),
+          bp_action_button("import_data", "Import Data", "import", title = "Import CSV or TSV data"),
           bp_action_button("run_preview", "Run preview", "play", primary = TRUE, title = "Run preview (Ctrl+Enter)"),
           shiny::downloadButton(
             "download_project",

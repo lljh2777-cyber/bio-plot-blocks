@@ -29,7 +29,10 @@ bp_create_project <- function(name = "Untitled plot") {
       project_schema = "0.2.0",
       ir_schema = "0.2.0"
     ),
-    data_reference = list(strategy = "local_environment", symbol = "df", embedded = FALSE),
+    data_sources = list(bp_example_data_source()),
+    active_data_source_id = "dataset_example",
+    mapping_config = list(dataset_id = "dataset_example", plot_id = NULL, mapping = list(), confirmed_by_user = TRUE),
+    data_reference = list(strategy = "local_environment", source_id = "dataset_example", symbol = "df", embedded = FALSE),
     template_provenance = NULL,
     original_source = NULL,
     parse_support = "A",
@@ -61,12 +64,21 @@ bp_validate_project <- function(project, registry = NULL) {
   if (any(!nzchar(ids)) || anyDuplicated(ids)) stop("Module instance IDs must be non-empty and unique.", call. = FALSE)
   unknown <- setdiff(vapply(project$modules, `[[`, character(1), "module_id"), names(registry))
   if (length(unknown)) stop("Project references unknown modules: ", paste(unknown, collapse = ", "), call. = FALSE)
+  sources <- project$data_sources %||% list()
+  source_ids <- vapply(sources, function(source) source$id %||% "", character(1))
+  if (length(source_ids) && (any(!nzchar(source_ids)) || anyDuplicated(source_ids))) stop("Project data source IDs must be non-empty and unique.", call. = FALSE)
   invisible(TRUE)
 }
 
 bp_migrate_project <- function(project) {
   version <- project$schema_version %||% "0.1.0"
-  if (identical(version, "0.2.0")) return(project)
+  if (identical(version, "0.2.0")) {
+    project$data_sources <- project$data_sources %||% list(bp_example_data_source())
+    project$active_data_source_id <- project$active_data_source_id %||% "dataset_example"
+    project$mapping_config <- project$mapping_config %||% list(dataset_id = project$active_data_source_id, plot_id = NULL, mapping = list(), confirmed_by_user = TRUE)
+    project$data_reference$source_id <- project$data_reference$source_id %||% project$active_data_source_id
+    return(project)
+  }
   if (identical(version, "0.1.0")) {
     project$schema_version <- "0.2.0"
     project$application_version <- project$application_version %||% "0.2.0"

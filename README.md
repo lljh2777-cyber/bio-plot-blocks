@@ -20,12 +20,14 @@ The application starts with a ggplot2-only volcano-plot template and a determini
 - deterministic R code generation from R language objects;
 - parsing of the supported generated-code subset with lossless Raw R fallback;
 - real local ggplot2 execution and plot preview;
+- first-stage CSV/TSV/TXT data import with configurable parsing, a 30-row preview, deterministic column profiling, quality warnings, and explicit type overrides;
+- a registered data-source model with manual X/Y/color/fill/shape/size/alpha/label/group mappings that drive generated ggplot2 code and real previews;
 - JSON project save/restore and `.R` export;
 - a ggplot2-only bioinformatics template;
 - schema, unit, round-trip, scope, and execution tests.
 
 ## Scope
 
-The MVP adapts R and ggplot2 only. It does not execute bioinformatics analyses, silently transform data, optimize plotting code, or introduce calls to other add-on R packages.
+The MVP adapts R and ggplot2 only. It does not execute bioinformatics analyses, silently clean imported data, optimize plotting code, or introduce calls to other add-on R packages. Project files retain imported-data metadata and confirmed mappings; source table contents must be re-linked after reopening.
 
 See [the implementation analysis](docs/requirements-analysis.md) for the requirements-to-deliverables mapping and known boundaries.

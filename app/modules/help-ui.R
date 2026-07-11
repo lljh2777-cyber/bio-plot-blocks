@@ -251,12 +251,13 @@ bp_help_document_zh <- function() {
         list(
           list(htmltools::tags$strong("New"), "创建新的示例散点项目，并替换当前工作区。"),
           list(htmltools::tags$strong("Import R"), "粘贴支持的 R/ggplot2 代码并解析为模块；未知结构保留为 Raw R。"),
+          list(htmltools::tags$strong("Import Data"), "导入 CSV、TSV 或 TXT，检查列类型和质量，并将确认的列映射应用到绘图。"),
           list(htmltools::tags$strong("Save"), "下载版本化的 .bioplotblocks.json 项目文件。"),
           list(htmltools::tags$strong("Open folder"), "打开此前保存的 JSON 项目并恢复模块状态。"),
           list(htmltools::tags$strong("Export"), "下载当前项目对应的 .R 脚本。")
         )
       ),
-      bp_help_note("保存前建议", "导出前先运行预览并确认底部没有错误。JSON 和 .R 文件用途不同，重要项目建议同时保存。", "warning")
+      bp_help_note("保存前建议", "项目会保存数据源元数据和列映射，但不会嵌入完整原始表；重新打开后请按提示重新链接原文件。", "warning")
     ),
     bp_help_section(
       "zh", "layout", "08", "布局与快捷键",
@@ -395,12 +396,13 @@ bp_help_document_en <- function() {
         list(
           list(htmltools::tags$strong("New"), "Create a fresh example scatter project and replace the current workspace."),
           list(htmltools::tags$strong("Import R"), "Parse supported R/ggplot2 code into modules; preserve unknown structures as Raw R."),
+          list(htmltools::tags$strong("Import Data"), "Import CSV, TSV, or TXT data, review types and quality, then apply confirmed column mappings to the plot."),
           list(htmltools::tags$strong("Save"), "Download a versioned .bioplotblocks.json project."),
           list(htmltools::tags$strong("Open folder"), "Restore a previously saved JSON project and its module state."),
           list(htmltools::tags$strong("Export"), "Download the current project as an .R script.")
         )
       ),
-      bp_help_note("Before saving", "Run the preview and confirm there are no errors. JSON and .R serve different purposes; keep both for important work.", "warning")
+      bp_help_note("Before saving", "Projects retain data-source metadata and mappings, not the complete source table. Re-link the original file when prompted after reopening.", "warning")
     ),
     bp_help_section(
       "en", "layout", "08", "Layout and shortcuts",

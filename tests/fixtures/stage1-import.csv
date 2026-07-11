@@ -1,0 +1,7 @@
+feature,x_value,y_value,group,padj
+GENE001,-1.8,3.2,Down,0.0006
+GENE002,-0.9,1.4,NS,0.0398
+GENE003,0.1,0.3,NS,0.5012
+GENE004,1.2,2.1,Up,0.0079
+GENE005,2.0,4.0,Up,0.0001
+GENE006,0.7,1.1,NS,

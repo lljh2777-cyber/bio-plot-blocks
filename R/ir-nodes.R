@@ -179,7 +179,7 @@ bp_value_to_source <- function(value) {
   type <- bp_value_type(value)
   switch(
     type,
-    RSymbol = value$name,
+    RSymbol = bp_symbol_source_name(value$name),
     RCharacter = encodeString(value$value, quote = '"'),
     RDouble = format(value$value, scientific = FALSE, trim = TRUE),
     RInteger = paste0(value$value, "L"),

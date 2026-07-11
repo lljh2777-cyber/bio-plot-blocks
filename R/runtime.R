@@ -49,11 +49,15 @@ bp_execute_project <- function(
     project,
     registry = NULL,
     environment = bp_default_environment(),
+    datasets = list(),
     timeout_seconds = 12) {
   registry <- registry %||% bp_load_registry()
   warnings <- character()
   messages <- character()
   started <- Sys.time()
+  if (length(datasets)) {
+    for (name in names(datasets)) assign(name, datasets[[name]], envir = environment)
+  }
 
   result <- tryCatch(
     withCallingHandlers(
@@ -102,9 +106,9 @@ bp_execute_project <- function(
   )
 }
 
-bp_render_preview_to_files <- function(project, root, status_path, image_path) {
+bp_render_preview_to_files <- function(project, root, status_path, image_path, datasets = list()) {
   options(BioPlotBlocks.root = root)
-  result <- bp_execute_project(project)
+  result <- bp_execute_project(project, datasets = datasets)
   if (isTRUE(result$ok)) {
     grDevices::png(
       filename = image_path,
@@ -122,28 +126,29 @@ bp_render_preview_to_files <- function(project, root, status_path, image_path) {
   invisible(serializable)
 }
 
-bp_start_preview_process <- function(project, root, status_path, image_path) {
+bp_start_preview_process <- function(project, root, status_path, image_path, datasets = list()) {
   if (!requireNamespace("callr", quietly = TRUE)) {
     stop("The callr package is required for cancellable preview execution.", call. = FALSE)
   }
   callr::r_bg(
-    function(project, root, status_path, image_path) {
+    function(project, root, status_path, image_path, datasets) {
       options(BioPlotBlocks.root = root)
       files <- list.files(file.path(root, "R"), pattern = "\\.R$", full.names = TRUE)
       priority <- c(
-        "ir-nodes.R", "module-registry.R", "module-instance.R", "codegen.R",
+        "ir-nodes.R", "module-registry.R", "module-instance.R", "data-sources.R", "codegen.R",
         "parser.R", "project-store.R", "diagnostics.R", "runtime.R", "templates.R",
         "ui-bindings.R"
       )
       files <- files[order(match(basename(files), priority, nomatch = length(priority) + 1L))]
       for (file in files) sys.source(file, envir = globalenv())
-      bp_render_preview_to_files(project, root, status_path, image_path)
+      bp_render_preview_to_files(project, root, status_path, image_path, datasets)
     },
     args = list(
       project = project,
       root = root,
       status_path = status_path,
-      image_path = image_path
+      image_path = image_path,
+      datasets = datasets
     ),
     supervise = TRUE,
     stdout = "|",

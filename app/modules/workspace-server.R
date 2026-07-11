@@ -351,6 +351,111 @@ bp_seed_added_module <- function(instance, spec) {
   instance
 }
 
+bp_data_import_modal <- function() {
+  shiny::modalDialog(
+    title = "Import Data / 导入数据",
+    size = "l",
+    easyClose = FALSE,
+    htmltools::tags$p(class = "bp-modal-note", "First stage: CSV, TSV, and delimited TXT. Original files are read-only and never modified."),
+    htmltools::tags$div(
+      class = "bp-data-import-layout",
+      htmltools::tags$section(
+        class = "bp-import-settings",
+        htmltools::tags$h3("1. Select and parse"),
+        shiny::fileInput("data_file", "Data file", accept = c("text/csv", "text/tab-separated-values", ".csv", ".tsv", ".txt")),
+        htmltools::tags$details(
+          class = "bp-import-options",
+          htmltools::tags$summary("Text parsing options"),
+          shiny::selectInput("data_delimiter", "Delimiter", choices = c("Auto" = "auto", "Comma" = "comma", "Tab" = "tab", "Semicolon" = "semicolon", "Pipe" = "pipe")),
+          shiny::selectInput("data_encoding", "Encoding", choices = c("UTF-8", "UTF-8-BOM" = "UTF-8-BOM", "GB18030", "Latin-1" = "latin1")),
+          shiny::checkboxInput("data_header", "First row contains column names", value = TRUE),
+          shiny::textInput("data_na_values", "Missing values (comma separated)", value = ",NA,N/A,null,NULL"),
+          shiny::selectInput("data_quote", "Quote character", choices = c('Double quote (")' = '"', "Single quote (')" = "'", "None" = "")),
+          shiny::selectInput("data_decimal", "Decimal mark", choices = c("Dot" = ".", "Comma" = ",")),
+          shiny::numericInput("data_skip", "Rows to skip", value = 0, min = 0, step = 1),
+          shiny::actionButton("analyze_data_file", "Re-analyze file", class = "bp-command-button")
+        )
+      ),
+      htmltools::tags$section(class = "bp-import-results", shiny::uiOutput("data_import_results"))
+    ),
+    footer = htmltools::tagList(
+      shiny::modalButton("Cancel"),
+      shiny::actionButton("register_data_source", "Use data in plot", class = "bp-command-primary")
+    )
+  )
+}
+
+bp_data_preview_table <- function(data, rows = 30L, columns = 12L) {
+  shown <- utils::head(data, rows)
+  shown <- shown[, seq_len(min(ncol(shown), columns)), drop = FALSE]
+  htmltools::tags$div(
+    class = "bp-data-preview-scroll",
+    htmltools::tags$table(
+      class = "bp-data-preview-table",
+      htmltools::tags$thead(htmltools::tags$tr(lapply(names(shown), htmltools::tags$th))),
+      htmltools::tags$tbody(lapply(seq_len(nrow(shown)), function(row) {
+        htmltools::tags$tr(lapply(shown[row, , drop = FALSE], function(value) {
+          text <- if (length(value) == 0L || is.na(value[[1]])) "NA" else as.character(value[[1]])
+          htmltools::tags$td(title = text, text)
+        }))
+      }))
+    )
+  )
+}
+
+bp_data_column_table <- function(profile) {
+  type_choices <- c("numeric", "integer", "character", "logical", "factor", "date", "datetime")
+  htmltools::tags$div(
+    class = "bp-column-profile-scroll",
+    htmltools::tags$table(
+      class = "bp-column-profile-table",
+      htmltools::tags$thead(htmltools::tags$tr(
+        htmltools::tags$th("Column"), htmltools::tags$th("Detected / override"),
+        htmltools::tags$th("Missing"), htmltools::tags$th("Unique"), htmltools::tags$th("Suggested use")
+      )),
+      htmltools::tags$tbody(lapply(seq_along(profile$column_metadata), function(index) {
+        column <- profile$column_metadata[[index]]
+        htmltools::tags$tr(
+          htmltools::tags$td(htmltools::tags$code(column$name)),
+          htmltools::tags$td(shiny::selectInput(
+            paste0("data_type_", index), label = NULL, choices = type_choices,
+            selected = column$recommended_type, width = "132px"
+          )),
+          htmltools::tags$td(format(column$missing_count, big.mark = ",")),
+          htmltools::tags$td(format(column$unique_count, big.mark = ",")),
+          htmltools::tags$td(paste(column$valid_for, collapse = ", "))
+        )
+      }))
+    )
+  )
+}
+
+bp_data_mapping_controls <- function(data_import, project) {
+  columns <- names(data_import$data)
+  choices <- c("Not mapped" = "", stats::setNames(columns, columns))
+  metadata <- data_import$profile$column_metadata
+  numeric <- vapply(metadata, function(column) column$recommended_type %in% c("numeric", "integer"), logical(1))
+  categorical <- vapply(metadata, function(column) "color" %in% column$valid_for, logical(1))
+  defaults <- list(
+    x = if (any(numeric)) columns[which(numeric)[1]] else columns[[1]],
+    y = if (sum(numeric) >= 2L) columns[which(numeric)[2]] else if (length(columns) >= 2L) columns[[2]] else columns[[1]],
+    color = if (any(categorical)) columns[which(categorical)[1]] else "",
+    fill = "", shape = "", size = "", alpha = "", label = "", group = ""
+  )
+  relink_id <- data_import$relink_id %||% NULL
+  existing <- project$mapping_config %||% list()
+  if (!is.null(relink_id) && identical(existing$dataset_id, relink_id)) {
+    defaults[names(existing$mapping %||% list())] <- existing$mapping
+  }
+  htmltools::tags$div(
+    class = "bp-mapping-grid",
+    lapply(names(defaults), function(role) shiny::selectInput(
+      paste0("data_map_", role), toupper(sub("^.", substr(role, 1, 1), role)),
+      choices = choices, selected = defaults[[role]] %||% ""
+    ))
+  )
+}
+
 bp_workspace_server <- function(input, output, session, registry, templates, root) {
   initial <- bp_project_from_template("bio.volcano.basic", registry)
   selected_initial <- initial$modules[[2]]$instance_id
@@ -366,7 +471,9 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     preview_status = "initial",
     preview_result = NULL,
     preview_image = NULL,
-    preview_status_file = NULL
+    preview_status_file = NULL,
+    data_objects = list(),
+    data_import = NULL
   )
 
   commit <- function(project, selected = state$selected, record_history = TRUE) {
@@ -392,8 +499,20 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     state$preview_result <- NULL
     state$preview_status_file <- status_path
     state$preview_image <- image_path
+    active_id <- shiny::isolate(state$project$active_data_source_id %||% "dataset_example")
+    active_sources <- Filter(function(source) identical(source$id, active_id), shiny::isolate(state$project$data_sources %||% list()))
+    if (length(active_sources) && !isTRUE(active_sources[[1]]$example) && is.null(shiny::isolate(state$data_objects[[active_id]]))) {
+      state$preview_status <- "error"
+      state$preview_result <- list(
+        ok = FALSE,
+        error = paste0("Data source '", active_sources[[1]]$name, "' must be re-linked by importing ", active_sources[[1]]$original_file_name, " again."),
+        warnings = list(), messages = list()
+      )
+      return()
+    }
+    datasets <- bp_runtime_dataset_values(shiny::isolate(state$project), shiny::isolate(state$data_objects))
     process <- tryCatch(
-      bp_start_preview_process(shiny::isolate(state$project), root, status_path, image_path),
+      bp_start_preview_process(shiny::isolate(state$project), root, status_path, image_path, datasets),
       error = identity
     )
     if (inherits(process, "error")) {
@@ -404,6 +523,165 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       state$preview_process <- process
     }
   }
+
+  parse_data_file <- function() {
+    file <- input$data_file
+    if (is.null(file) || !nzchar(file$datapath %||% "") || !file.exists(file$datapath)) return()
+    options <- list(
+      delimiter = input$data_delimiter %||% "auto",
+      encoding = input$data_encoding %||% "UTF-8",
+      header = if (is.null(input$data_header)) TRUE else isTRUE(input$data_header),
+      na_values = input$data_na_values %||% ",NA,N/A,null,NULL",
+      quote = input$data_quote %||% '"',
+      decimal = input$data_decimal %||% ".",
+      skip = input$data_skip %||% 0L
+    )
+    parsed <- tryCatch(bp_read_delimited_data(file$datapath, file$name, options), error = identity)
+    if (inherits(parsed, "error")) {
+      state$data_import <- list(error = conditionMessage(parsed), file = file)
+      return()
+    }
+    profile <- bp_profile_dataset(parsed$data)
+    matches <- Filter(function(source) {
+      !isTRUE(source$example) && identical(source$original_file_name %||% "", file$name)
+    }, state$project$data_sources %||% list())
+    state$data_import <- list(
+      file = file,
+      data = parsed$data,
+      parse_options = parsed$options,
+      profile = profile,
+      relink_id = if (length(matches)) matches[[1]]$id else NULL,
+      suggested_name = if (length(matches)) matches[[1]]$name else bp_data_source_name(
+        file$name,
+        vapply(state$project$data_sources %||% list(), function(source) source$name %||% "", character(1))
+      )
+    )
+  }
+
+  output$active_data_source_badge <- shiny::renderUI({
+    active_id <- state$project$active_data_source_id %||% "dataset_example"
+    sources <- Filter(function(source) identical(source$id, active_id), state$project$data_sources %||% list())
+    source <- if (length(sources)) sources[[1]] else bp_example_data_source()
+    htmltools::tags$span(
+      class = paste("bp-data-source-badge", if (identical(source$status, "relink_required")) "is-relink-required" else "is-ready"),
+      title = if (isTRUE(source$example)) "Built-in demonstration data" else source$original_file_name,
+      bp_icon(if (identical(source$status, "relink_required")) "warning" else "check", 14),
+      paste0("Data: ", source$name, if (isTRUE(source$example)) " · example" else if (identical(source$status, "relink_required")) " · relink" else "")
+    )
+  })
+
+  output$data_import_results <- shiny::renderUI({
+    imported <- state$data_import
+    if (is.null(imported)) {
+      return(htmltools::tags$div(class = "bp-import-empty", bp_icon("import", 30), htmltools::tags$p("Choose a CSV or TSV file to analyze.")))
+    }
+    if (!is.null(imported$error)) {
+      return(htmltools::tags$div(class = "bp-import-error", bp_icon("warning", 22), htmltools::tags$strong("Import failed"), htmltools::tags$p(imported$error)))
+    }
+    profile <- imported$profile
+    warnings <- profile$warnings %||% list()
+    htmltools::tagList(
+      htmltools::tags$h3("2. Review and map"),
+      htmltools::tags$div(
+        class = "bp-data-summary-grid",
+        htmltools::tags$div(htmltools::tags$span("Rows"), htmltools::tags$strong(format(profile$rows, big.mark = ","))),
+        htmltools::tags$div(htmltools::tags$span("Columns"), htmltools::tags$strong(profile$columns)),
+        htmltools::tags$div(htmltools::tags$span("Numeric"), htmltools::tags$strong(profile$numeric_columns)),
+        htmltools::tags$div(htmltools::tags$span("Categorical"), htmltools::tags$strong(profile$categorical_columns)),
+        htmltools::tags$div(htmltools::tags$span("Missing"), htmltools::tags$strong(format(profile$missing_values, big.mark = ","))),
+        htmltools::tags$div(htmltools::tags$span("Duplicate rows"), htmltools::tags$strong(format(profile$duplicate_rows, big.mark = ",")))
+      ),
+      shiny::textInput("data_source_name", "Data object name", value = imported$suggested_name),
+      htmltools::tags$details(class = "bp-import-section", open = "open", htmltools::tags$summary("Data preview · first 30 rows"), bp_data_preview_table(imported$data)),
+      htmltools::tags$details(class = "bp-import-section", htmltools::tags$summary("Column types and quality"), bp_data_column_table(profile)),
+      if (length(warnings)) htmltools::tags$div(
+        class = "bp-data-quality-warnings",
+        htmltools::tags$strong(paste("Quality checks ·", length(warnings))),
+        htmltools::tags$ul(lapply(warnings, function(warning) htmltools::tags$li(class = paste0("is-", warning$level), warning$message)))
+      ),
+      htmltools::tags$div(class = "bp-mapping-title", htmltools::tags$strong("Manual column mapping"), htmltools::tags$span("Mappings are confirmed only when you click Use data in plot.")),
+      bp_data_mapping_controls(imported, state$project)
+    )
+  })
+
+  shiny::observeEvent(input$import_data, {
+    state$data_import <- NULL
+    shiny::showModal(bp_data_import_modal())
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(input$data_file, parse_data_file(), ignoreInit = TRUE)
+  shiny::observeEvent(input$analyze_data_file, parse_data_file(), ignoreInit = TRUE)
+
+  shiny::observeEvent(input$register_data_source, {
+    imported <- state$data_import
+    if (is.null(imported) || !is.null(imported$error) || is.null(imported$data)) {
+      shiny::showNotification("Choose and analyze a supported data file first.", type = "warning")
+      return()
+    }
+    name <- trimws(input$data_source_name %||% "")
+    if (!grepl("^[.A-Za-z][.A-Za-z0-9_]*$", name)) {
+      shiny::showNotification("Data object name must be a valid R identifier.", type = "error")
+      return()
+    }
+    data <- imported$data
+    conversions <- list()
+    for (index in seq_along(data)) {
+      target <- input[[paste0("data_type_", index)]] %||% imported$profile$column_metadata[[index]]$recommended_type
+      current <- bp_column_type(data[[index]])
+      if (!identical(target, current)) {
+        converted <- tryCatch(bp_convert_column(data[[index]], target), error = identity)
+        if (inherits(converted, "error")) {
+          shiny::showNotification(paste0("Column ", names(data)[[index]], ": ", conditionMessage(converted)), type = "error", duration = NULL)
+          return()
+        }
+        data[[index]] <- converted
+        conversions[[length(conversions) + 1L]] <- list(column = names(data)[[index]], from = current, to = target)
+      }
+    }
+    roles <- c("x", "y", "color", "fill", "shape", "size", "alpha", "label", "group")
+    mapping <- stats::setNames(lapply(roles, function(role) input[[paste0("data_map_", role)]] %||% ""), roles)
+    if (!nzchar(mapping$x) || !nzchar(mapping$y)) {
+      shiny::showNotification("Choose both X and Y columns.", type = "error")
+      return()
+    }
+    updated_profile <- bp_profile_dataset(data)
+    metadata_by_name <- stats::setNames(updated_profile$column_metadata, names(data))
+    for (role in c("size", "alpha")) {
+      column <- mapping[[role]]
+      if (nzchar(column) && !metadata_by_name[[column]]$recommended_type %in% c("numeric", "integer")) {
+        shiny::showNotification(paste(toupper(role), "requires a numeric column in the first-stage mapper."), type = "error")
+        return()
+      }
+    }
+    extension <- tolower(tools::file_ext(imported$file$name))
+    source_id <- imported$relink_id %||% bp_data_source_id(state$project)
+    source <- list(
+      id = source_id,
+      name = name,
+      source_type = if (extension == "csv") "csv" else "tsv",
+      original_file_name = imported$file$name,
+      object_type = "data.frame",
+      rows = nrow(data), columns = ncol(data), status = "ready", example = FALSE,
+      relink_required = FALSE,
+      column_metadata = updated_profile$column_metadata,
+      quality = list(
+        missing_values = updated_profile$missing_values,
+        duplicate_rows = updated_profile$duplicate_rows,
+        duplicate_column_names = updated_profile$duplicate_column_names,
+        warnings = updated_profile$warnings
+      ),
+      parse_options = imported$parse_options,
+      conversions = conversions
+    )
+    project <- bp_apply_dataset_mapping(state$project, source, mapping)
+    state$data_objects[[source_id]] <- data
+    root_index <- which(vapply(project$modules, function(module) identical(module$module_id, "r.ggplot2.ggplot"), logical(1)))[1]
+    commit(project, project$modules[[root_index]]$instance_id)
+    state$data_import <- NULL
+    shiny::removeModal()
+    shiny::showNotification(paste0("Data source '", name, "' is ready and mapped to the plot."), type = "message")
+    start_preview()
+  }, ignoreInit = TRUE)
 
   output$library_filters <- shiny::renderUI({
     filters <- c(All = "all", Core = "core", Geoms = "geoms", Structure = "structure", Scales = "scales", Templates = "templates")
@@ -732,6 +1010,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     project <- bp_project_from_template(template_id, registry)
     selected <- if (length(project$modules) >= 2L) project$modules[[2]]$instance_id else project$modules[[1]]$instance_id
     commit(project, selected)
+    state$data_objects <- list()
     shiny::updateTextInput(session, "project_name", value = project$name)
     start_preview()
   }, ignoreInit = TRUE)
@@ -918,6 +1197,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   shiny::observeEvent(input$new_project, {
     project <- bp_new_scatter_project(registry)
     commit(project, project$modules[[2]]$instance_id)
+    state$data_objects <- list()
     shiny::updateTextInput(session, "project_name", value = project$name)
     state$expression_edit <- NULL
     state$preview_status <- "initial"
@@ -927,7 +1207,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     payload <- input$restore_project
     restored <- tryCatch({
       envelope <- jsonlite::fromJSON(payload$json %||% "", simplifyVector = FALSE)
-      project <- bp_migrate_project(envelope$project %||% envelope)
+      project <- bp_mark_data_sources_for_relink(bp_migrate_project(envelope$project %||% envelope))
       bp_validate_project(project, registry)
       list(project = project, selected = envelope$selected %||% NULL)
     }, error = identity)
@@ -943,12 +1223,20 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     }
 
     commit(restored$project, restored$selected, record_history = FALSE)
+    state$data_objects <- list()
     state$history <- list()
     state$future <- list()
     state$expression_edit <- NULL
     state$preview_status <- "initial"
     state$preview_result <- NULL
     shiny::updateTextInput(session, "project_name", value = restored$project$name)
+    relink <- Filter(function(source) identical(source$status, "relink_required"), restored$project$data_sources %||% list())
+    if (length(relink)) {
+      shiny::showNotification(
+        paste0("Project metadata restored. Re-import ", relink[[1]]$original_file_name, " to relink data source '", relink[[1]]$name, "'."),
+        type = "warning", duration = NULL
+      )
+    }
     session$onFlushed(function() {
       session$sendCustomMessage("bp_project_restore_status", list(ok = TRUE))
     }, once = TRUE)
@@ -969,6 +1257,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   shiny::observeEvent(input$parse_import, {
     parsed <- bp_parse_code(input$import_source %||% "", registry)
     commit(parsed, if (length(parsed$modules)) parsed$modules[[1]]$instance_id else NULL)
+    state$data_objects <- list()
     shiny::updateTextInput(session, "project_name", value = parsed$name)
     shiny::removeModal()
     if (identical(parsed$parse_support, "D")) {
@@ -978,14 +1267,17 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
 
   shiny::observeEvent(input$project_file, {
     shiny::req(input$project_file$datapath)
-    project <- tryCatch(bp_load_project(input$project_file$datapath), error = identity)
+    project <- tryCatch(bp_mark_data_sources_for_relink(bp_load_project(input$project_file$datapath)), error = identity)
     if (inherits(project, "error")) {
       shiny::showNotification(conditionMessage(project), type = "error", duration = NULL)
       return()
     }
     commit(project, if (length(project$modules)) project$modules[[1]]$instance_id else NULL)
+    state$data_objects <- list()
     shiny::updateTextInput(session, "project_name", value = project$name)
     shiny::showNotification("Project restored with versioned module state.", type = "message")
+    relink <- Filter(function(source) identical(source$status, "relink_required"), project$data_sources %||% list())
+    if (length(relink)) shiny::showNotification("Imported data metadata was restored; re-import the original file to relink its contents.", type = "warning", duration = NULL)
   }, ignoreInit = TRUE)
 
   output$download_project <- shiny::downloadHandler(
@@ -1034,4 +1326,5 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     process <- shiny::isolate(state$preview_process)
     if (!is.null(process) && process$is_alive()) process$kill()
   })
+  invisible(state)
 }

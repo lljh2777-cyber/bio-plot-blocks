@@ -4,9 +4,10 @@ working <- normalizePath(getwd(), winslash = "/", mustWork = TRUE)
 app_dir <- if (basename(working) == "app") working else file.path(working, "app")
 root <- normalizePath(file.path(app_dir, ".."), winslash = "/", mustWork = TRUE)
 options(BioPlotBlocks.root = root)
+options(shiny.maxRequestSize = 25 * 1024^2)
 
 source_order <- c(
-  "ir-nodes.R", "module-registry.R", "module-instance.R", "codegen.R",
+  "ir-nodes.R", "module-registry.R", "module-instance.R", "data-sources.R", "codegen.R",
   "project-store.R", "parser.R", "diagnostics.R", "runtime.R", "templates.R",
   "ui-bindings.R"
 )

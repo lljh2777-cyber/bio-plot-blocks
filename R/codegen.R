@@ -177,7 +177,15 @@ bp_generate_code <- function(project, registry = NULL, include_setup = FALSE) {
   lines <- bp_generate_lines(project, registry)
   code <- paste(vapply(lines, `[[`, character(1), "text"), collapse = "\n")
   if (isTRUE(include_setup) && identical(project$settings$namespace_policy %||% "bare", "bare")) {
-    code <- paste("library(ggplot2)", code, sep = "\n\n")
+    setup <- "library(ggplot2)"
+    active_id <- project$active_data_source_id %||% "dataset_example"
+    sources <- project$data_sources %||% list()
+    active <- Filter(function(source) identical(source$id, active_id), sources)
+    if (length(active) && !isTRUE(active[[1]]$example)) {
+      source <- active[[1]]
+      setup <- paste(setup, bp_data_source_setup_line(source), sep = "\n")
+    }
+    code <- paste(setup, code, sep = "\n\n")
   }
   code
 }
