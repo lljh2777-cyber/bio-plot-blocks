@@ -16,6 +16,7 @@ Imports:
     ggplot2 (>= 4.0.0),
     htmltools,
     jsonlite,
+    later,
     rlang,
     shiny
 Suggests:

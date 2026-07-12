@@ -3,13 +3,14 @@ bp_action_button <- function(id, label, icon, primary = FALSE, class = NULL, tit
     id,
     label = htmltools::tagList(bp_icon(icon, 17), htmltools::tags$span(class = "bp-command-label", label)),
     class = paste("bp-command-button", if (primary) "bp-command-primary", class),
-    title = title
+    title = title,
+    `aria-label` = label
   )
 }
 
-bp_resize_handle <- function(orientation, target, label) {
+bp_resize_handle <- function(orientation, target, label, class = NULL) {
   htmltools::tags$div(
-    class = paste("bp-resize-handle", paste0("bp-resize-", orientation)),
+    class = paste("bp-resize-handle", paste0("bp-resize-", orientation), class),
     role = "separator",
     tabindex = "0",
     `aria-orientation` = orientation,
@@ -26,12 +27,57 @@ bp_resize_handle <- function(orientation, target, label) {
   )
 }
 
+bp_visual_step <- function(number, label, icon, section, active = FALSE) {
+  htmltools::tags$button(
+    type = "button",
+    class = paste("bp-visual-step", if (active) "is-active"),
+    `data-visual-section` = section,
+    `aria-label` = paste0(number, ". ", label),
+    htmltools::tags$span(class = "bp-visual-step-number", sprintf("%02d", number)),
+    bp_icon(icon, 20),
+    htmltools::tags$span(label)
+  )
+}
+
+bp_visual_section_header <- function(number, title, description = NULL, action = NULL) {
+  htmltools::tags$div(
+    class = "bp-visual-section-header",
+    htmltools::tags$div(
+      class = "bp-visual-section-title",
+      htmltools::tags$span(number),
+      htmltools::tags$div(
+        htmltools::tags$h2(title),
+        if (!is.null(description)) htmltools::tags$p(description)
+      )
+    ),
+    action
+  )
+}
+
+bp_visual_chart_card <- function(title, subtitle, icon, active = FALSE, disabled = FALSE) {
+  htmltools::tags$button(
+    type = "button",
+    class = paste("bp-visual-chart-card", if (active) "is-active", if (disabled) "is-disabled"),
+    disabled = if (disabled) "disabled" else NULL,
+    `aria-pressed` = if (active) "true" else "false",
+    bp_icon(icon, 22),
+    htmltools::tags$span(
+      htmltools::tags$strong(title),
+      htmltools::tags$small(subtitle)
+    ),
+    if (disabled) htmltools::tags$em("后续阶段") else bp_icon("check", 16)
+  )
+}
+
 bp_workspace_ui <- function(root) {
   shiny::fluidPage(
     htmltools::tags$head(
       htmltools::tags$meta(charset = "utf-8"),
       htmltools::tags$meta(name = "viewport", content = "width=device-width, initial-scale=1"),
       htmltools::tags$title("BioPlotBlocks"),
+      htmltools::tags$script(htmltools::HTML(
+        "(function(){try{var m=localStorage.getItem('bioplotblocks.interface-mode.v1');document.documentElement.classList.add(m==='advanced'?'bp-interface-advanced':'bp-interface-visual');}catch(e){document.documentElement.classList.add('bp-interface-visual');}})();"
+      )),
       shiny::includeCSS(file.path(root, "app", "www", "app.css")),
       shiny::includeScript(file.path(root, "app", "www", "app.js"))
     ),
@@ -50,6 +96,13 @@ bp_workspace_ui <- function(root) {
           shiny::textInput("project_name", label = NULL, value = "Volcano analysis", placeholder = "Project name")
         ),
         htmltools::tags$div(
+          class = "bp-interface-mode-switch",
+          role = "group",
+          `aria-label` = "Interface mode / 界面模式",
+          htmltools::tags$button(type = "button", class = "bp-mode-button is-active", `data-interface-mode` = "visual", `aria-pressed` = "true", bp_icon("plot", 15), htmltools::tags$span("可视化模式")),
+          htmltools::tags$button(type = "button", class = "bp-mode-button", `data-interface-mode` = "advanced", `aria-pressed` = "false", bp_icon("code", 15), htmltools::tags$span("R / 高级模式"))
+        ),
+        htmltools::tags$div(
           class = "bp-environment-lock",
           htmltools::tags$span(class = "bp-live-dot", `aria-hidden` = "true"),
           htmltools::tags$span("R 4.5.1 · ggplot2 4.0.1")
@@ -58,20 +111,26 @@ bp_workspace_ui <- function(root) {
         htmltools::tags$nav(
           class = "bp-command-bar",
           `aria-label` = "Project commands",
-          bp_action_button("new_project", "New", "plus"),
-          bp_action_button("import_r", "Import R", "import"),
+          bp_action_button("visual_undo", "Undo", "undo", class = "bp-visual-command", title = "撤销 (Ctrl+Z)"),
+          bp_action_button("visual_redo", "Redo", "redo", class = "bp-visual-command", title = "重做 (Ctrl+Y)"),
+          bp_action_button("new_project", "New", "plus", class = "bp-advanced-command"),
+          bp_action_button("import_r", "Import R", "import", class = "bp-advanced-command"),
           bp_action_button("import_data", "Import Data", "import", title = "Import CSV, TSV, TXT, RDS, RData, or rda"),
           bp_action_button("manage_data_sources", "Data Sources", "open", title = "Manage registered data sources"),
           bp_action_button("run_preview", "Run preview", "play", primary = TRUE, title = "Run preview (Ctrl+Enter)"),
           shiny::downloadButton(
             "download_project",
             label = htmltools::tagList(bp_icon("save", 17), htmltools::tags$span(class = "bp-command-label", "Save")),
-            class = "bp-command-button"
+            class = "bp-command-button",
+            title = "Save project",
+            `aria-label` = "Save project"
           ),
           shiny::downloadButton(
             "download_r",
             label = htmltools::tagList(bp_icon("export", 17), htmltools::tags$span(class = "bp-command-label", "Export")),
-            class = "bp-command-button"
+            class = "bp-command-button",
+            title = "Export R script",
+            `aria-label` = "Export R script"
           ),
           htmltools::tags$button(
             id = "open-help-button",
@@ -95,7 +154,125 @@ bp_workspace_ui <- function(root) {
         )
       ),
       htmltools::tags$main(
-        class = "bp-workspace",
+        class = "bp-visual-workspace bp-visual-surface",
+        htmltools::tags$aside(
+          class = "bp-visual-step-rail",
+          `aria-label` = "可视化绘图步骤",
+          bp_visual_step(1, "数据源", "open", "visual-section-source", active = TRUE),
+          bp_visual_step(2, "图表类型", "plot", "visual-section-chart"),
+          bp_visual_step(3, "数据字段", "mapping", "visual-section-fields"),
+          bp_visual_step(4, "样式", "theme", "visual-section-style"),
+          bp_visual_step(5, "标题与坐标轴", "label", "visual-section-labels"),
+          bp_visual_step(6, "导出", "export", "visual-section-export")
+        ),
+        htmltools::tags$section(
+          class = "bp-visual-builder-panel",
+          htmltools::tags$div(
+            class = "bp-visual-builder-heading",
+            htmltools::tags$div(
+              htmltools::tags$span(class = "bp-visual-eyebrow", "SCATTER BUILDER · 散点图向导"),
+              htmltools::tags$h1("创建散点图"),
+              htmltools::tags$p("按步骤选择数据和样式；所有改动会同步到同一个 R / ggplot2 项目。")
+            ),
+            shiny::actionButton("visual_new_scatter", "新建散点图", icon = shiny::icon("plus"), class = "bp-command-button")
+          ),
+          htmltools::tags$div(
+            class = "bp-visual-builder-scroll",
+            htmltools::tags$section(
+              id = "visual-section-source",
+              class = "bp-visual-config-section",
+              bp_visual_section_header("01", "选择数据源", "选择已注册且可用的数据；数据预览和字段候选会自动同步。"),
+              shiny::selectInput("visual_data_source", label = "数据表", choices = c("正在读取…" = ""), selectize = FALSE, width = "100%"),
+              shiny::uiOutput("visual_data_profile")
+            ),
+            htmltools::tags$section(
+              id = "visual-section-chart",
+              class = "bp-visual-config-section",
+              bp_visual_section_header("02", "选择图表类型", "第一阶段完整支持散点图；其他类型将在后续阶段接入同一配置层。"),
+              htmltools::tags$div(
+                class = "bp-visual-chart-grid",
+                bp_visual_chart_card("散点图", "比较两个连续变量", "point", active = TRUE),
+                bp_visual_chart_card("火山图", "差异表达结果", "plot", disabled = TRUE),
+                bp_visual_chart_card("箱线图", "比较组间分布", "boxplot", disabled = TRUE),
+                bp_visual_chart_card("PCA 图", "样本降维概览", "mapping", disabled = TRUE)
+              )
+            ),
+            htmltools::tags$section(
+              id = "visual-section-fields",
+              class = "bp-visual-config-section",
+              bp_visual_section_header(
+                "03", "映射数据字段", "X 和 Y 为必选；颜色、大小和标签为可选。",
+                shiny::actionButton("visual_recommend_fields", "智能推荐", icon = shiny::icon("wand-magic-sparkles"), class = "bp-link-button")
+              ),
+              shiny::uiOutput("visual_field_recommendation"),
+              htmltools::tags$div(
+                class = "bp-visual-field-grid",
+                shiny::selectizeInput("visual_x", "X 轴字段 *", choices = NULL, options = list(placeholder = "选择数值列"), width = "100%"),
+                shiny::selectizeInput("visual_y", "Y 轴字段 *", choices = NULL, options = list(placeholder = "选择数值列"), width = "100%"),
+                shiny::selectizeInput("visual_color", "颜色分组", choices = NULL, options = list(placeholder = "不映射颜色"), width = "100%"),
+                shiny::selectizeInput("visual_size", "点大小映射", choices = NULL, options = list(placeholder = "固定大小"), width = "100%"),
+                shiny::selectizeInput("visual_label", "标签字段", choices = NULL, options = list(placeholder = "不显示标签"), width = "100%")
+              ),
+              htmltools::tags$div(
+                class = "bp-visual-transform-grid",
+                shiny::selectInput("visual_x_scale", "X 值转换", choices = c("线性" = "linear", "log10" = "log10", "-log10" = "neg_log10"), width = "100%"),
+                shiny::selectInput("visual_y_scale", "Y 值转换", choices = c("线性" = "linear", "log10" = "log10", "-log10" = "neg_log10"), width = "100%")
+              )
+            ),
+            htmltools::tags$section(
+              id = "visual-section-style",
+              class = "bp-visual-config-section",
+              bp_visual_section_header("04", "设置常用样式", "仅展示高频选项；原有高级参数不会被删除。"),
+              htmltools::tags$div(
+                class = "bp-visual-control-grid",
+                htmltools::tags$div(class = "bp-visual-color-control", htmltools::tags$span(class = "bp-visual-color-swatch"), shiny::textInput("visual_point_color", "点颜色", value = "#2C7FB8", width = "100%")),
+                shiny::numericInput("visual_point_size", "固定点大小", value = 2, min = 0.1, max = 20, step = 0.1, width = "100%"),
+                shiny::numericInput("visual_alpha", "透明度", value = 0.72, min = 0, max = 1, step = 0.05, width = "100%"),
+                shiny::selectInput("visual_shape", "点形状", choices = c("实心圆" = "16", "空心圆" = "1", "实心方形" = "15", "实心三角" = "17", "菱形" = "18"), width = "100%"),
+                shiny::selectInput("visual_palette", "分组调色板", choices = c("沿用项目 / 默认" = "default", "蓝–灰–红" = "blue_red", "Viridis 风格" = "viridis_like"), width = "100%"),
+                shiny::selectInput("visual_trend", "趋势线", choices = c("无" = "none", "线性拟合" = "linear", "平滑拟合" = "smooth"), width = "100%"),
+                shiny::selectInput("visual_theme", "图表主题", choices = c("经典" = "classic", "简洁" = "minimal", "黑白" = "bw"), width = "100%"),
+                shiny::numericInput("visual_base_size", "基础字号", value = 12, min = 6, max = 40, step = 1, width = "100%")
+              ),
+              shiny::uiOutput("visual_advanced_state")
+            ),
+            htmltools::tags$section(
+              id = "visual-section-labels",
+              class = "bp-visual-config-section",
+              bp_visual_section_header("05", "标题与坐标轴", "留空时沿用 ggplot2 默认标签。"),
+              htmltools::tags$div(
+                class = "bp-visual-label-grid",
+                shiny::textInput("visual_title", "图标题", value = "", width = "100%"),
+                shiny::textInput("visual_x_label", "X 轴标题", value = "", width = "100%"),
+                shiny::textInput("visual_y_label", "Y 轴标题", value = "", width = "100%"),
+                shiny::textInput("visual_legend_title", "图例标题", value = "", width = "100%")
+              )
+            ),
+            htmltools::tags$section(
+              id = "visual-section-export",
+              class = "bp-visual-config-section bp-visual-export-section",
+              bp_visual_section_header("06", "保存与导出", "顶部可保存项目或导出可复现的 R 脚本。"),
+              htmltools::tags$p("可视化模式和 R / 高级模式共享同一项目；切换模式不会丢失设置。")
+            )
+          )
+        ),
+        htmltools::tags$section(
+          class = "bp-visual-preview-panel",
+          htmltools::tags$div(
+            class = "bp-visual-preview-heading",
+            htmltools::tags$div(htmltools::tags$span(class = "bp-visual-eyebrow", "LIVE PREVIEW"), htmltools::tags$h2("实时预览")),
+            shiny::uiOutput("visual_preview_status")
+          ),
+          htmltools::tags$div(
+            class = "bp-visual-preview-canvas",
+            shiny::uiOutput("visual_preview_image"),
+            shiny::uiOutput("visual_preview_overlay")
+          ),
+          shiny::uiOutput("visual_validation")
+        )
+      ),
+      htmltools::tags$main(
+        class = "bp-workspace bp-advanced-surface",
         htmltools::tags$section(
           class = "bp-panel bp-stack-panel bp-builder-panel",
           `aria-label` = "Layer builder",
@@ -121,16 +298,16 @@ bp_workspace_ui <- function(root) {
           shiny::uiOutput("assignment_editor"),
           shiny::uiOutput("layer_stack")
         ),
-        bp_resize_handle("vertical", "inspector", "Resize layer stack and parameter inspector"),
+        bp_resize_handle("vertical", "inspector", "Resize layer stack and parameter inspector", class = "bp-advanced-surface"),
         htmltools::tags$aside(
           class = "bp-panel bp-inspector-panel",
           `aria-label` = "Parameter inspector",
           shiny::uiOutput("parameter_inspector")
         )
       ),
-      bp_resize_handle("horizontal", "workspace", "Resize upper and lower workspaces"),
+      bp_resize_handle("horizontal", "workspace", "Resize upper and lower workspaces", class = "bp-advanced-surface"),
       htmltools::tags$section(
-        class = "bp-lower-workspace",
+        class = "bp-lower-workspace bp-advanced-surface",
         htmltools::tags$article(
           class = "bp-panel bp-preview-panel",
           htmltools::tags$div(
@@ -205,6 +382,12 @@ bp_workspace_ui <- function(root) {
           shiny::uiOutput("generated_code_transport"),
           shiny::uiOutput("project_state_transport")
         )
+      ),
+      htmltools::tags$section(
+        class = "bp-visual-actions bp-visual-surface",
+        htmltools::tags$div(class = "bp-visual-action-status", shiny::uiOutput("visual_action_status")),
+        shiny::checkboxInput("visual_auto_preview", "自动预览", value = TRUE),
+        shiny::actionButton("visual_run_preview", "生成并预览", icon = shiny::icon("play"), class = "bp-command-button bp-command-primary")
       ),
       htmltools::tags$footer(
         class = "bp-statusbar",

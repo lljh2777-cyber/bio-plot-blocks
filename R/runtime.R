@@ -135,7 +135,7 @@ bp_start_preview_process <- function(project, root, status_path, image_path, dat
       options(BioPlotBlocks.root = root)
       files <- list.files(file.path(root, "R"), pattern = "\\.R$", full.names = TRUE)
       priority <- c(
-        "ir-nodes.R", "module-registry.R", "module-instance.R", "data-sources.R", "codegen.R",
+        "ir-nodes.R", "module-registry.R", "module-instance.R", "data-sources.R", "visual-config.R", "codegen.R",
         "parser.R", "project-store.R", "diagnostics.R", "runtime.R", "templates.R",
         "ui-bindings.R"
       )

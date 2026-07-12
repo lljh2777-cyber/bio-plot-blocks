@@ -26,6 +26,7 @@
   let previewViewHandlerStarted = false;
   let parameterValueHandlerStarted = false;
   const projectStorageKey = "bioplotblocks.project.v0.2";
+  const interfaceModeStorageKey = "bioplotblocks.interface-mode.v1";
   const pendingInputTimers = new Map();
   const resizeConfig = {
     inspector: { property: "--bp-inspector-width", selector: ".bp-inspector-panel", min: 340 },
@@ -39,6 +40,60 @@
       nonce: Date.now() + Math.random()
     });
     window.Shiny.setInputValue(name, value, { priority: "event" });
+  }
+
+  function storedInterfaceMode() {
+    try {
+      return window.localStorage.getItem(interfaceModeStorageKey) === "advanced" ? "advanced" : "visual";
+    } catch (error) {
+      return "visual";
+    }
+  }
+
+  function setInterfaceMode(mode, persist, notify) {
+    const next = mode === "advanced" ? "advanced" : "visual";
+    const root = document.documentElement;
+    root.classList.toggle("bp-interface-visual", next === "visual");
+    root.classList.toggle("bp-interface-advanced", next === "advanced");
+    document.body.classList.toggle("bp-mode-visual", next === "visual");
+    document.body.classList.toggle("bp-mode-advanced", next === "advanced");
+    document.querySelectorAll(".bp-mode-button[data-interface-mode]").forEach(function (button) {
+      const active = button.dataset.interfaceMode === next;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+    if (persist !== false) {
+      try {
+        window.localStorage.setItem(interfaceModeStorageKey, next);
+      } catch (error) {
+        // The interface still works when storage is unavailable.
+      }
+    }
+    if (notify !== false) sendInput("interface_mode", { value: next });
+    window.requestAnimationFrame(function () {
+      constrainResizeLayout();
+      window.dispatchEvent(new Event("resize"));
+      if (window.jQuery) {
+        const shown = next === "visual" ? ".bp-visual-surface" : ".bp-advanced-surface";
+        const hidden = next === "visual" ? ".bp-advanced-surface" : ".bp-visual-surface";
+        window.jQuery(hidden).trigger("hidden");
+        window.jQuery(shown).trigger("shown");
+      }
+    });
+  }
+
+  function setVisualStep(sectionId) {
+    document.querySelectorAll(".bp-visual-step[data-visual-section]").forEach(function (button) {
+      button.classList.toggle("is-active", button.dataset.visualSection === sectionId);
+    });
+  }
+
+  function updateVisualColorSwatch(input) {
+    if (!input) return;
+    const control = input.closest(".bp-visual-color-control");
+    if (!control) return;
+    const value = String(input.value || "").trim();
+    if (/^#[0-9a-f]{6}$/i.test(value)) control.style.setProperty("--bp-current-color", value);
   }
 
   function closest(target, selector) {
@@ -868,6 +923,21 @@
   }
 
   document.addEventListener("click", function (event) {
+    const modeButton = closest(event.target, ".bp-mode-button[data-interface-mode]");
+    if (modeButton) {
+      setInterfaceMode(modeButton.dataset.interfaceMode, true, true);
+      return;
+    }
+
+    const visualStep = closest(event.target, ".bp-visual-step[data-visual-section]");
+    if (visualStep) {
+      const sectionId = visualStep.dataset.visualSection;
+      const section = document.getElementById(sectionId);
+      if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
+      setVisualStep(sectionId);
+      return;
+    }
+
     if (closest(event.target, "#open-help-button")) {
       openHelp();
       return;
@@ -1081,6 +1151,9 @@
   });
 
   document.addEventListener("input", function (event) {
+    const visualColor = closest(event.target, "#visual_point_color");
+    if (visualColor) updateVisualColorSwatch(visualColor);
+
     const moduleSearch = closest(event.target, "#module_search");
     if (moduleSearch) {
       filterModulePicker(moduleSearch);
@@ -1329,19 +1402,25 @@
     const key = event.key.toLowerCase();
     if (key === "enter") {
       event.preventDefault();
-      const run = document.getElementById("run_preview");
+      const run = document.documentElement.classList.contains("bp-interface-visual")
+        ? document.getElementById("visual_run_preview")
+        : document.getElementById("run_preview");
       if (run) run.click();
       return;
     }
     if (key === "z" && !event.shiftKey) {
       event.preventDefault();
-      const undo = document.getElementById("undo");
+      const undo = document.documentElement.classList.contains("bp-interface-visual")
+        ? document.getElementById("visual_undo")
+        : document.getElementById("undo");
       if (undo) undo.click();
       return;
     }
     if (key === "y" || (key === "z" && event.shiftKey)) {
       event.preventDefault();
-      const redo = document.getElementById("redo");
+      const redo = document.documentElement.classList.contains("bp-interface-visual")
+        ? document.getElementById("visual_redo")
+        : document.getElementById("redo");
       if (redo) redo.click();
     }
   });
@@ -1351,6 +1430,7 @@
     openHelp: openHelp,
     closeHelp: closeHelp,
     setHelpLanguage: setHelpLanguage,
+    setInterfaceMode: setInterfaceMode,
     sendInput: sendInput,
     refreshResizeHandles: refreshResizeHandles
   };
@@ -1372,6 +1452,7 @@
   }, true);
 
   function initializeInterface() {
+    setInterfaceMode(storedInterfaceMode(), false, false);
     refreshResizeHandles();
     setPreviewView("plot", false);
     initializePreviewViewHandler();
@@ -1380,6 +1461,7 @@
     initializeHelpNavigation();
     initializeTextInputContinuity();
     initializeProjectPersistence();
+    updateVisualColorSwatch(document.getElementById("visual_point_color"));
   }
 
   if (readStoredProject()) document.documentElement.classList.add("bp-restoring-project");
@@ -1391,6 +1473,7 @@
   }
   window.addEventListener("resize", constrainResizeLayout);
   document.addEventListener("shiny:connected", function () {
+    setInterfaceMode(storedInterfaceMode(), false, true);
     refreshResizeHandles();
     initializePreviewViewHandler();
     initializeParameterValueHandler();

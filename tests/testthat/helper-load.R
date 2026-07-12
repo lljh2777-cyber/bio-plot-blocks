@@ -3,7 +3,7 @@ if (!file.exists(file.path(root, "DESCRIPTION"))) root <- normalizePath(file.pat
 options(BioPlotBlocks.root = root)
 
 source_order <- c(
-  "ir-nodes.R", "module-registry.R", "module-instance.R", "data-sources.R", "codegen.R",
+  "ir-nodes.R", "module-registry.R", "module-instance.R", "data-sources.R", "visual-config.R", "codegen.R",
   "project-store.R", "parser.R", "diagnostics.R", "runtime.R", "templates.R",
   "ui-bindings.R"
 )

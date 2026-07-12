@@ -691,6 +691,8 @@ bp_data_source_mapping_modal <- function(source, data, project) {
 
 bp_workspace_server <- function(input, output, session, registry, templates, root) {
   initial <- bp_project_from_template("bio.volcano.basic", registry)
+  initial$visual_config <- initial$visual_config %||% list()
+  initial$visual_config$scatter <- bp_visual_scatter_config_from_project(initial)
   selected_initial <- initial$modules[[2]]$instance_id
   state <- shiny::reactiveValues(
     project = initial,
@@ -703,16 +705,21 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     preview_status = "initial",
     preview_result = NULL,
     preview_image = NULL,
+    preview_pending_image = NULL,
     preview_status_file = NULL,
     data_objects = list(),
     data_import = NULL,
     data_preview_source_id = "dataset_example",
     pending_mapping_source_id = NULL,
     pending_rename_source_id = NULL,
-    last_data_switch = NULL
+    last_data_switch = NULL,
+    interface_mode = "visual",
+    visual_syncing = FALSE,
+    visual_input_error = NULL,
+    last_commit_origin = NULL
   )
 
-  commit <- function(project, selected = state$selected, record_history = TRUE) {
+  commit <- function(project, selected = state$selected, record_history = TRUE, origin = "advanced") {
     current <- shiny::isolate(state$project)
     if (isTRUE(record_history)) {
       history <- c(shiny::isolate(state$history), list(bp_clone_project(current)))
@@ -721,6 +728,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       state$future <- list()
     }
     project$updated_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")
+    state$last_commit_origin <- origin
     state$project <- project
     ids <- vapply(project$modules %||% list(), `[[`, character(1), "instance_id")
     state$selected <- if (length(ids) && selected %in% ids) selected else if (length(ids)) ids[[1]] else NULL
@@ -781,7 +789,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     state$preview_status <- "running"
     state$preview_result <- NULL
     state$preview_status_file <- status_path
-    state$preview_image <- image_path
+    state$preview_pending_image <- image_path
     active_id <- shiny::isolate(state$project$active_data_source_id %||% "dataset_example")
     active_sources <- Filter(function(source) identical(source$id, active_id), shiny::isolate(state$project$data_sources %||% list()))
     if (length(active_sources) && !isTRUE(active_sources[[1]]$example) && is.null(shiny::isolate(state$data_objects[[active_id]]))) {
@@ -791,6 +799,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
         error = paste0("Data source '", active_sources[[1]]$name, "' must be re-linked by importing ", active_sources[[1]]$original_file_name, " again."),
         warnings = list(), messages = list()
       )
+      state$preview_pending_image <- NULL
       return()
     }
     datasets <- bp_runtime_dataset_values(shiny::isolate(state$project), shiny::isolate(state$data_objects))
@@ -802,9 +811,120 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       state$preview_status <- "error"
       state$preview_result <- list(ok = FALSE, error = conditionMessage(process), warnings = list(), messages = list())
       state$preview_process <- NULL
+      state$preview_pending_image <- NULL
     } else {
       state$preview_process <- process
     }
+  }
+
+  visual_source <- function(project = shiny::isolate(state$project)) {
+    active_id <- project$active_data_source_id %||% "dataset_example"
+    sources <- Filter(function(source) identical(source$id, active_id), project$data_sources %||% list())
+    if (length(sources)) sources[[1]] else if (identical(active_id, "dataset_example")) bp_example_data_source() else NULL
+  }
+
+  visual_source_data <- function(source = visual_source()) {
+    if (is.null(source)) return(NULL)
+    if (isTRUE(source$example)) bp_default_environment()$df else shiny::isolate(state$data_objects[[source$id]])
+  }
+
+  visual_current_columns <- function(project = state$project) {
+    source <- visual_source(project)
+    if (is.null(source)) return(character())
+    data <- if (isTRUE(source$example)) bp_default_environment()$df else state$data_objects[[source$id]]
+    bp_data_source_columns(source, data)
+  }
+
+  visual_config_from_inputs <- function() {
+    current <- state$project$visual_config$scatter %||% bp_visual_scatter_config_from_project(state$project)
+    list(
+      chart_type = "scatter",
+      data_source_id = state$project$active_data_source_id %||% "dataset_example",
+      x_field = input$visual_x %||% current$x_field,
+      y_field = input$visual_y %||% current$y_field,
+      color_field = input$visual_color %||% current$color_field,
+      size_field = input$visual_size %||% current$size_field,
+      label_field = input$visual_label %||% current$label_field,
+      point_color = input$visual_point_color %||% current$point_color,
+      point_size = input$visual_point_size %||% current$point_size,
+      alpha = input$visual_alpha %||% current$alpha,
+      shape = input$visual_shape %||% current$shape,
+      palette = input$visual_palette %||% current$palette,
+      trend_line = input$visual_trend %||% current$trend_line,
+      title = input$visual_title %||% current$title,
+      x_label = input$visual_x_label %||% current$x_label,
+      y_label = input$visual_y_label %||% current$y_label,
+      legend_title = input$visual_legend_title %||% current$legend_title,
+      x_scale = input$visual_x_scale %||% current$x_scale,
+      y_scale = input$visual_y_scale %||% current$y_scale,
+      theme = input$visual_theme %||% current$theme,
+      base_size = input$visual_base_size %||% current$base_size,
+      advanced_preserved = isTRUE(current$advanced_preserved)
+    )
+  }
+
+  visual_validation <- function(config = visual_config_from_inputs()) {
+    validation <- bp_validate_visual_scatter_config(config, visual_current_columns())
+    source <- visual_source()
+    if (is.null(source) || identical(source$status, "relink_required") || isTRUE(source$relink_required)) {
+      validation$valid <- FALSE
+      validation$errors <- unique(c(validation$errors, "当前数据源需要重新链接后才能生成预览。"))
+    }
+    color <- trimws(config$point_color %||% "")
+    if (!grepl("^#[0-9A-Fa-f]{6}$", color)) {
+      validation$valid <- FALSE
+      validation$errors <- unique(c(validation$errors, "点颜色需使用 6 位十六进制颜色，例如 #2C7FB8。"))
+    }
+    validation
+  }
+
+  sync_visual_inputs <- function(project = shiny::isolate(state$project), config = NULL) {
+    config <- config %||% bp_visual_scatter_config_from_project(project)
+    config <- bp_normalize_visual_scatter_config(config, project)
+    state$visual_syncing <- TRUE
+    sources <- project$data_sources %||% list(bp_example_data_source())
+    source_values <- vapply(sources, function(source) source$id %||% "", character(1))
+    source_labels <- vapply(sources, function(source) paste0(
+      source$name %||% "data", " · ", toupper(source$source_type %||% "DATA"), " · ",
+      if (identical(source$status, "relink_required") || isTRUE(source$relink_required)) "需要重新链接" else "可用"
+    ), character(1))
+    keep <- nzchar(source_values)
+    shiny::updateSelectInput(
+      session, "visual_data_source",
+      choices = stats::setNames(source_values[keep], source_labels[keep]),
+      selected = config$data_source_id
+    )
+
+    source <- visual_source(project)
+    data <- if (is.null(source)) NULL else if (isTRUE(source$example)) bp_default_environment()$df else shiny::isolate(state$data_objects[[source$id]])
+    profile <- if (is.null(source)) data.frame(name = character(), type = character()) else bp_visual_column_profile(source, data)
+    field_values <- c("", profile$name)
+    field_labels <- c("不选择", paste0(profile$name, " · ", profile$type))
+    field_choices <- stats::setNames(field_values, field_labels)
+    update_field <- function(id, selected) {
+      shiny::updateSelectizeInput(session, id, choices = field_choices, selected = selected %||% "", server = TRUE)
+    }
+    update_field("visual_x", config$x_field)
+    update_field("visual_y", config$y_field)
+    update_field("visual_color", config$color_field)
+    update_field("visual_size", config$size_field)
+    update_field("visual_label", config$label_field)
+    shiny::updateTextInput(session, "visual_point_color", value = config$point_color)
+    shiny::updateNumericInput(session, "visual_point_size", value = config$point_size)
+    shiny::updateNumericInput(session, "visual_alpha", value = config$alpha)
+    shiny::updateSelectInput(session, "visual_shape", selected = config$shape)
+    shiny::updateSelectInput(session, "visual_palette", selected = config$palette)
+    shiny::updateSelectInput(session, "visual_trend", selected = config$trend_line)
+    shiny::updateSelectInput(session, "visual_theme", selected = config$theme)
+    shiny::updateNumericInput(session, "visual_base_size", value = config$base_size)
+    shiny::updateSelectInput(session, "visual_x_scale", selected = config$x_scale)
+    shiny::updateSelectInput(session, "visual_y_scale", selected = config$y_scale)
+    shiny::updateTextInput(session, "visual_title", value = config$title)
+    shiny::updateTextInput(session, "visual_x_label", value = config$x_label)
+    shiny::updateTextInput(session, "visual_y_label", value = config$y_label)
+    shiny::updateTextInput(session, "visual_legend_title", value = config$legend_title)
+    later::later(function() state$visual_syncing <- FALSE, 0.35)
+    invisible(config)
   }
 
   parse_data_file <- function() {
@@ -861,6 +981,85 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       title = if (isTRUE(source$example)) "Built-in demonstration data" else source$original_file_name,
       bp_icon(if (identical(source$status, "relink_required")) "warning" else "check", 14),
       paste0("Data: ", source$name, if (isTRUE(source$example)) " · example" else if (identical(source$status, "relink_required")) " · relink" else "")
+    )
+  })
+
+  output$visual_data_profile <- shiny::renderUI({
+    source <- visual_source(state$project)
+    if (is.null(source)) return(htmltools::tags$div(class = "bp-visual-validation-card is-invalid", "当前项目没有可用数据源。"))
+    data <- if (isTRUE(source$example)) bp_default_environment()$df else state$data_objects[[source$id]]
+    rows <- if (is.data.frame(data)) nrow(data) else source$rows %||% "—"
+    columns <- if (is.data.frame(data)) ncol(data) else source$columns %||% length(source$column_metadata %||% list())
+    status <- if (identical(source$status, "relink_required") || isTRUE(source$relink_required)) "需要重新链接" else "可用于绘图"
+    htmltools::tags$div(
+      class = "bp-visual-data-profile",
+      htmltools::tags$div(htmltools::tags$span("数据对象"), htmltools::tags$strong(source$name %||% "data")),
+      htmltools::tags$div(htmltools::tags$span("行 × 列"), htmltools::tags$strong(paste0(format(rows, big.mark = ","), " × ", format(columns, big.mark = ",")))),
+      htmltools::tags$div(htmltools::tags$span("状态"), htmltools::tags$strong(status))
+    )
+  })
+
+  output$visual_field_recommendation <- shiny::renderUI({
+    source <- visual_source(state$project)
+    if (is.null(source)) return(NULL)
+    data <- if (isTRUE(source$example)) bp_default_environment()$df else state$data_objects[[source$id]]
+    recommendation <- bp_visual_recommend_scatter_fields(source, data)
+    if (!nzchar(recommendation$x_field) || !nzchar(recommendation$y_field)) return(NULL)
+    htmltools::tags$div(
+      class = "bp-visual-recommendation",
+      bp_icon("info", 17),
+      htmltools::tags$div(
+        htmltools::tags$strong("字段建议："),
+        paste0("X = ", recommendation$x_field, "，Y = ", recommendation$y_field,
+          if (nzchar(recommendation$color_field)) paste0("，颜色 = ", recommendation$color_field) else "", "。")
+      )
+    )
+  })
+
+  output$visual_advanced_state <- shiny::renderUI({
+    config <- bp_visual_scatter_config_from_project(state$project)
+    if (!isTRUE(config$advanced_preserved)) return(NULL)
+    htmltools::tags$div(
+      class = "bp-visual-advanced-note",
+      bp_icon("check", 17),
+      htmltools::tags$div(
+        htmltools::tags$strong("高级设置已保留"),
+        htmltools::tags$div("当前项目含有可视化面板未展开的图层、映射或参数。它们会继续参与代码生成和预览，可在 R / 高级模式中查看。")
+      )
+    )
+  })
+
+  output$visual_preview_status <- shiny::renderUI({
+    status <- state$preview_status
+    label <- switch(status, running = "正在生成", error = "预览有错误", cancelled = "已取消", success = "预览已同步", "等待预览")
+    htmltools::tags$span(
+      class = paste("bp-visual-preview-status", paste0("is-", status)),
+      htmltools::tags$span(class = "bp-status-dot"),
+      label
+    )
+  })
+
+  output$visual_validation <- shiny::renderUI({
+    validation <- visual_validation()
+    if (isTRUE(validation$valid)) {
+      return(htmltools::tags$div(
+        class = "bp-visual-validation-card",
+        bp_icon("check", 16),
+        htmltools::tags$span("配置有效。可视化设置、模块状态、R 代码和预览保持同步。")
+      ))
+    }
+    htmltools::tags$div(
+      class = "bp-visual-validation-card is-invalid",
+      bp_icon("warning", 16),
+      htmltools::tags$span(paste(validation$errors, collapse = " "))
+    )
+  })
+
+  output$visual_action_status <- shiny::renderUI({
+    config <- state$project$visual_config$scatter %||% bp_visual_scatter_config_from_project(state$project)
+    status <- switch(state$preview_status, running = "正在使用本地 R 生成预览…", error = "本次预览失败；已保留上一次成功图片。", success = "已同步到 ggplot2 项目并完成预览。", cancelled = "预览已取消，项目设置未改变。", "更改字段或样式后将自动预览。")
+    htmltools::tags$span(
+      paste0(status, if (isTRUE(config$advanced_preserved)) " 高级设置仍已保留。" else "")
     )
   })
 
@@ -1402,40 +1601,50 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     )
   })
 
-  output$preview_image <- shiny::renderUI({
+  preview_image_ui <- function() {
     path <- state$preview_image
-    status <- state$preview_status
-    shiny::req(!is.null(path), file.exists(path), identical(status, "success"))
+    shiny::req(!is.null(path), file.exists(path))
     htmltools::tags$img(
       src = base64enc::dataURI(file = path, mime = "image/png"),
       alt = "ggplot2 preview generated from the current module stack"
     )
-  })
+  }
 
-  output$preview_overlay <- shiny::renderUI({
+  preview_overlay_ui <- function() {
     status <- state$preview_status
     if (identical(status, "success")) return(NULL)
     if (identical(status, "running")) {
-      return(htmltools::tags$div(class = "bp-preview-overlay", htmltools::tags$span(class = "bp-spinner"), htmltools::tags$strong("Running real ggplot2"), htmltools::tags$p("The editor remains responsive; cancel is available.")))
+      return(htmltools::tags$div(class = "bp-preview-overlay", htmltools::tags$span(class = "bp-spinner"), htmltools::tags$div(htmltools::tags$strong("正在生成真实 ggplot2 预览"), htmltools::tags$p("界面仍可继续操作；完成前会保留上一次成功图片。"))))
     }
     if (identical(status, "error")) {
       return(htmltools::tags$div(
         class = "bp-preview-overlay bp-preview-error",
         bp_icon("warning", 28),
-        htmltools::tags$strong("Preview failed"),
-        htmltools::tags$p(
-          role = "region",
-          tabindex = "0",
-          `aria-label` = "Preview error details",
-          state$preview_result$error %||% "Unknown R error"
+        htmltools::tags$div(
+          htmltools::tags$strong("预览失败 / Preview failed"),
+          htmltools::tags$p(
+            role = "region",
+            tabindex = "0",
+            `aria-label` = "Preview error details",
+            state$preview_result$error %||% "Unknown R error"
+          )
         )
       ))
     }
     if (identical(status, "cancelled")) {
       return(htmltools::tags$div(class = "bp-preview-overlay", bp_icon("info", 28), htmltools::tags$strong("Preview cancelled"), htmltools::tags$p("Your module state and code were not changed.")))
     }
-    htmltools::tags$div(class = "bp-preview-overlay", bp_icon("plot", 30), htmltools::tags$strong("Preview ready"), htmltools::tags$p("Run the current module stack with local R."))
-  })
+    htmltools::tags$div(class = "bp-preview-overlay", bp_icon("plot", 30), htmltools::tags$div(htmltools::tags$strong("预览已就绪"), htmltools::tags$p("选择字段后由本地 R 生成图像。")))
+  }
+
+  output$preview_image <- shiny::renderUI(preview_image_ui())
+  output$visual_preview_image <- shiny::renderUI(preview_image_ui())
+  output$preview_overlay <- shiny::renderUI(preview_overlay_ui())
+  output$visual_preview_overlay <- shiny::renderUI(preview_overlay_ui())
+  shiny::outputOptions(output, "preview_image", suspendWhenHidden = FALSE)
+  shiny::outputOptions(output, "visual_preview_image", suspendWhenHidden = FALSE)
+  shiny::outputOptions(output, "preview_overlay", suspendWhenHidden = FALSE)
+  shiny::outputOptions(output, "visual_preview_overlay", suspendWhenHidden = FALSE)
 
   output$active_data_preview <- shiny::renderUI({
     active_id <- state$project$active_data_source_id %||% "dataset_example"
@@ -1526,6 +1735,124 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       htmltools::tags$div(class = "bp-status-item bp-local-status", htmltools::tags$span(class = "bp-live-dot"), "Execution: Local R")
     )
   })
+  shiny::outputOptions(output, "generated_code_transport", suspendWhenHidden = FALSE)
+  shiny::outputOptions(output, "project_state_transport", suspendWhenHidden = FALSE)
+
+  shiny::observeEvent(state$project, {
+    origin <- shiny::isolate(state$last_commit_origin)
+    if (identical(origin, "visual_config")) return()
+    config <- bp_visual_scatter_config_from_project(state$project)
+    sync_visual_inputs(state$project, config)
+  }, ignoreInit = FALSE)
+
+  shiny::observeEvent(input$interface_mode, {
+    state$interface_mode <- input$interface_mode$value %||% input$interface_mode %||% "visual"
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(input$visual_data_source, {
+    if (isTRUE(state$visual_syncing)) return()
+    source_id <- input$visual_data_source %||% ""
+    current_id <- state$project$active_data_source_id %||% "dataset_example"
+    if (!nzchar(source_id) || identical(source_id, current_id)) return()
+    sources <- Filter(function(source) identical(source$id, source_id), state$project$data_sources %||% list())
+    if (!length(sources)) return()
+    source <- sources[[1]]
+    result <- tryCatch(switch_registered_data_source(state$project, source), error = identity)
+    if (inherits(result, "error")) {
+      state$visual_syncing <- TRUE
+      shiny::updateSelectInput(session, "visual_data_source", selected = current_id)
+      later::later(function() state$visual_syncing <- FALSE, 0.35)
+      shiny::showNotification(conditionMessage(result), type = "warning", duration = 8)
+      return()
+    }
+    config <- bp_visual_scatter_config_from_project(result$project)
+    result$project$visual_config <- result$project$visual_config %||% list()
+    result$project$visual_config$scatter <- config
+    commit(result$project, result$root_instance_id, origin = "visual_source")
+    state$data_preview_source_id <- source$id
+    state$last_data_switch <- result
+    notify_data_source_switch(result)
+    sync_visual_inputs(result$project, config)
+    validation <- bp_validate_visual_scatter_config(config, result$columns)
+    if (isTRUE(input$visual_auto_preview) && isTRUE(validation$valid)) start_preview()
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(input$visual_recommend_fields, {
+    source <- visual_source(state$project)
+    if (is.null(source)) return()
+    data <- if (isTRUE(source$example)) bp_default_environment()$df else state$data_objects[[source$id]]
+    recommendation <- bp_visual_recommend_scatter_fields(source, data)
+    if (!nzchar(recommendation$x_field) || !nzchar(recommendation$y_field)) {
+      shiny::showNotification("当前数据源中没有足够的数值列用于散点图。", type = "warning")
+      return()
+    }
+    config <- visual_config_from_inputs()
+    config$x_field <- recommendation$x_field
+    config$y_field <- recommendation$y_field
+    config$color_field <- recommendation$color_field
+    result <- bp_apply_visual_scatter_config(state$project, config, registry)
+    commit(result$project, result$root_instance_id, origin = "visual_source")
+    sync_visual_inputs(result$project, result$config)
+    shiny::showNotification("已应用字段建议；可继续手动调整。", type = "message")
+    if (isTRUE(input$visual_auto_preview)) start_preview()
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(input$visual_new_scatter, {
+    project <- bp_new_scatter_project(registry)
+    source <- bp_example_data_source()
+    recommendation <- bp_visual_recommend_scatter_fields(source, bp_default_environment()$df)
+    config <- bp_visual_scatter_config_from_project(project)
+    config$x_field <- recommendation$x_field
+    config$y_field <- recommendation$y_field
+    config$color_field <- recommendation$color_field
+    config$title <- "Untitled scatter plot"
+    result <- bp_apply_visual_scatter_config(project, config, registry)
+    commit(result$project, result$root_instance_id, origin = "visual_source")
+    state$data_objects <- list()
+    state$data_preview_source_id <- "dataset_example"
+    state$preview_status <- "initial"
+    state$preview_result <- NULL
+    state$preview_image <- NULL
+    shiny::updateTextInput(session, "project_name", value = result$project$name)
+    sync_visual_inputs(result$project, result$config)
+    if (isTRUE(input$visual_auto_preview)) start_preview()
+  }, ignoreInit = TRUE)
+
+  visual_config_reactive <- shiny::debounce(shiny::reactive(visual_config_from_inputs()), 480)
+  shiny::observeEvent(visual_config_reactive(), {
+    if (isTRUE(state$visual_syncing)) return()
+    raw_config <- visual_config_reactive()
+    if (!grepl("^#[0-9A-Fa-f]{6}$", trimws(raw_config$point_color %||% ""))) {
+      state$visual_input_error <- "invalid_color"
+      return()
+    }
+    state$visual_input_error <- NULL
+    current <- state$project$visual_config$scatter %||% bp_visual_scatter_config_from_project(state$project)
+    incoming <- bp_normalize_visual_scatter_config(raw_config, state$project)
+    incoming$advanced_preserved <- isTRUE(current$advanced_preserved)
+    current <- bp_normalize_visual_scatter_config(current, state$project)
+    if (identical(incoming, current)) return()
+    validation <- bp_validate_visual_scatter_config(incoming, visual_current_columns())
+    result <- bp_apply_visual_scatter_config(state$project, incoming, registry)
+    commit(result$project, result$root_instance_id, origin = "visual_config")
+    if (isTRUE(input$visual_auto_preview) && isTRUE(validation$valid)) start_preview()
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(input$visual_run_preview, {
+    config <- visual_config_from_inputs()
+    validation <- visual_validation(config)
+    if (!isTRUE(validation$valid)) {
+      shiny::showNotification(paste(validation$errors, collapse = " "), type = "warning", duration = 8)
+      return()
+    }
+    normalized <- bp_normalize_visual_scatter_config(config, state$project)
+    current <- bp_normalize_visual_scatter_config(state$project$visual_config$scatter %||% list(), state$project)
+    if (!identical(normalized, current)) {
+      result <- bp_apply_visual_scatter_config(state$project, normalized, registry)
+      commit(result$project, result$root_instance_id, origin = "visual_config")
+    }
+    start_preview()
+  }, ignoreInit = TRUE)
 
   shiny::observeEvent(input$parameter_tab, {
     state$parameter_tab <- input$parameter_tab$value %||% input$parameter_tab
@@ -1774,6 +2101,32 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     shiny::updateTextInput(session, "project_name", value = next_project$name)
   }, ignoreInit = TRUE)
 
+  shiny::observeEvent(input$visual_undo, {
+    history <- state$history
+    if (!length(history)) return()
+    previous <- history[[length(history)]]
+    state$future <- c(list(bp_clone_project(state$project)), state$future)
+    state$history <- history[-length(history)]
+    commit(previous, state$selected, record_history = FALSE, origin = "visual_history")
+    state$data_preview_source_id <- previous$active_data_source_id %||% "dataset_example"
+    state$last_data_switch <- NULL
+    shiny::updateTextInput(session, "project_name", value = previous$name)
+    if (isTRUE(input$visual_auto_preview)) start_preview()
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(input$visual_redo, {
+    future <- state$future
+    if (!length(future)) return()
+    next_project <- future[[1]]
+    state$history <- c(state$history, list(bp_clone_project(state$project)))
+    state$future <- future[-1]
+    commit(next_project, state$selected, record_history = FALSE, origin = "visual_history")
+    state$data_preview_source_id <- next_project$active_data_source_id %||% "dataset_example"
+    state$last_data_switch <- NULL
+    shiny::updateTextInput(session, "project_name", value = next_project$name)
+    if (isTRUE(input$visual_auto_preview)) start_preview()
+  }, ignoreInit = TRUE)
+
   project_name_debounced <- shiny::debounce(shiny::reactive(input$project_name), 450)
   shiny::observeEvent(project_name_debounced(), {
     name <- trimws(project_name_debounced() %||% "")
@@ -1812,6 +2165,11 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       return()
     }
 
+    process <- state$preview_process
+    if (!is.null(process) && process$is_alive()) process$kill()
+    state$preview_process <- NULL
+    state$preview_pending_image <- NULL
+
     commit(restored$project, restored$selected, record_history = FALSE)
     state$data_objects <- list()
     state$data_preview_source_id <- restored$project$active_data_source_id %||% "dataset_example"
@@ -1828,8 +2186,11 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
         type = "warning", duration = NULL
       )
     }
+    active_source <- Filter(function(source) identical(source$id, restored$project$active_data_source_id), restored$project$data_sources %||% list())
+    can_preview <- length(active_source) && !identical(active_source[[1]]$status, "relink_required") && !isTRUE(active_source[[1]]$relink_required)
     session$onFlushed(function() {
       session$sendCustomMessage("bp_project_restore_status", list(ok = TRUE))
+      if (isTRUE(can_preview)) start_preview()
     }, once = TRUE)
   }, ignoreInit = FALSE, ignoreNULL = TRUE, priority = 1000)
 
@@ -1871,6 +2232,8 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     shiny::showNotification("Project restored with versioned module state.", type = "message")
     relink <- Filter(function(source) identical(source$status, "relink_required"), project$data_sources %||% list())
     if (length(relink)) shiny::showNotification("Imported data metadata was restored; re-import the original file to relink its contents.", type = "warning", duration = NULL)
+    active_source <- Filter(function(source) identical(source$id, project$active_data_source_id), project$data_sources %||% list())
+    if (length(active_source) && !identical(active_source[[1]]$status, "relink_required") && !isTRUE(active_source[[1]]$relink_required)) start_preview()
   }, ignoreInit = TRUE)
 
   output$download_project <- shiny::downloadHandler(
@@ -1894,6 +2257,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       state$preview_process <- NULL
       state$preview_status <- "cancelled"
       state$preview_result <- list(ok = FALSE, error = NULL, warnings = list(), messages = list())
+      state$preview_pending_image <- NULL
     }
   }, ignoreInit = TRUE)
 
@@ -1905,12 +2269,19 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     if (!is.null(status_path) && file.exists(status_path)) {
       result <- jsonlite::fromJSON(status_path, simplifyVector = FALSE)
       state$preview_result <- result
-      state$preview_status <- if (isTRUE(result$ok) && file.exists(state$preview_image)) "success" else "error"
+      pending_image <- state$preview_pending_image
+      if (isTRUE(result$ok) && !is.null(pending_image) && file.exists(pending_image)) {
+        state$preview_image <- pending_image
+        state$preview_status <- "success"
+      } else {
+        state$preview_status <- "error"
+      }
     } else {
       stderr <- tryCatch(process$read_all_error(), error = function(error) "")
       state$preview_result <- list(ok = FALSE, error = if (nzchar(stderr)) stderr else "The R preview process exited without a result.", warnings = list(), messages = list())
       state$preview_status <- "error"
     }
+    state$preview_pending_image <- NULL
     state$preview_process <- NULL
   })
 

@@ -148,12 +148,44 @@ bp_help_hero <- function(language) {
   )
 }
 
+bp_help_visual_mode_intro <- function(language) {
+  chinese <- identical(language, "zh")
+  bp_help_section(
+    language, "visual-mode", "NEW",
+    if (chinese) "可视化绘图模式" else "Visual plotting mode",
+    if (chinese) {
+      "默认的任务式界面面向常规绘图：依次选择数据源、图表类型、字段、样式和标题；R / 高级模式仍保留完整模块、原生参数和生成代码。"
+    } else {
+      "The task-driven interface is now the default for routine plotting. Choose data, chart type, fields, style, and labels in order; R / Advanced mode retains the full module stack, native arguments, and generated code."
+    },
+    bp_help_feature_grid(list(
+      list(
+        title = if (chinese) "共享同一项目" else "One shared project",
+        text = if (chinese) "两个模式读写同一份语义化项目状态，切换模式不会复制或丢失图形设置。" else "Both modes read and write the same semantic project state, so switching never duplicates or discards plot settings."
+      ),
+      list(
+        title = if (chinese) "散点图向导" else "Scatter builder",
+        text = if (chinese) "第一阶段支持数据源、X/Y/颜色/大小/标签、点样式、调色板、趋势线、标题、坐标转换和主题。" else "Stage one supports data, X/Y/color/size/label mappings, point style, palettes, trend lines, labels, value transforms, and themes."
+      ),
+      list(
+        title = if (chinese) "自动预览" else "Automatic preview",
+        text = if (chinese) "有效设置会自动运行本地 ggplot2；失败时保留上一次成功图片，并显示可滚动的错误信息。" else "Valid edits run local ggplot2 automatically. On failure, the last successful image stays visible with scrollable error details."
+      ),
+      list(
+        title = if (chinese) "高级设置已保留" else "Advanced settings preserved",
+        text = if (chinese) "可视化界面无法安全表达的图层或参数不会被删除；界面会提示并允许切换到高级模式继续编辑。" else "Layers or arguments that cannot be represented safely are not removed; the interface flags them for continued editing in Advanced mode."
+      )
+    ))
+  )
+}
+
 bp_help_document_zh <- function() {
   htmltools::tags$article(
     class = "bp-help-document",
     `data-help-lang` = "zh",
     lang = "zh-CN",
     bp_help_hero("zh"),
+    bp_help_visual_mode_intro("zh"),
     bp_help_section(
       "zh", "overview", "01", "认识工作台",
       "界面把模块、原生 R 参数、绘图结果和生成代码放在同一个可检查的工作区中。",
@@ -308,6 +340,7 @@ bp_help_document_en <- function() {
     lang = "en",
     hidden = "hidden",
     bp_help_hero("en"),
+    bp_help_visual_mode_intro("en"),
     bp_help_section(
       "en", "overview", "01", "Workspace tour",
       "The workspace keeps modules, native R parameters, the rendered plot, and generated code visible in one inspectable surface.",
