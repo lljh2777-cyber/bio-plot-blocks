@@ -226,6 +226,9 @@ bp_help_document_zh <- function() {
         list(title = "All arguments", text = "显示当前模块已声明的全部参数。"),
         list(title = "Mapped aesthetics", text = "aes() 内的变量映射，例如 color = status。"),
         list(title = "列名建议", text = "x、y、color 等映射框可从当前数据列中选择，也可手动输入列名或 R 表达式。"),
+        list(title = "数据源联动", text = "ggplot() 的 data 值可从已注册数据源中下拉选择。选择 ready 数据源会同步活动数据、预览和列名建议，保留有效映射并清除缺失列映射。"),
+        list(title = "自定义 data 表达式", text = "手动输入 subset() 或 transform() 等 R 表达式时，软件不推断输出列、不切换活动数据源，并保留现有映射；请使用 Run preview 验证。"),
+        list(title = "需重新链接", text = "relink required 数据源会显示在列表中，但在重新导入或链接原文件前不能切换为绘图数据。"),
         list(title = "Fixed values", text = "aes() 外的固定值，例如 color = \"red\"。"),
         list(title = "R expr", text = "打开表达式编辑器，适合函数调用、向量或其他原生 R 语法。")
       )),
@@ -253,7 +256,8 @@ bp_help_document_zh <- function() {
         list(
           list(htmltools::tags$strong("New"), "创建新的示例散点项目，并替换当前工作区。"),
           list(htmltools::tags$strong("Import R"), "粘贴支持的 R/ggplot2 代码并解析为模块；未知结构保留为 Raw R。"),
-          list(htmltools::tags$strong("Import Data"), "导入 CSV、TSV 或 TXT，检查列类型和质量，并将确认的列映射应用到绘图。"),
+          list(htmltools::tags$strong("Import Data"), "导入 CSV、TSV、TXT、RDS 或 RData/rda。RData 在隔离环境中浏览多个对象；矩阵可转换为数据框并配置行名。"),
+          list(htmltools::tags$strong("顶部 Data 标签"), "打开多数据源管理：预览、重命名、重新链接或移除数据。Use in plot 作为兼容入口，与右侧 data 参数使用同一套联动规则。"),
           list(htmltools::tags$strong("Save"), "下载版本化的 .bioplotblocks.json 项目文件。"),
           list(htmltools::tags$strong("Open folder"), "打开此前保存的 JSON 项目并恢复模块状态。"),
           list(htmltools::tags$strong("Export"), "下载当前项目对应的 .R 脚本。")
@@ -292,6 +296,7 @@ bp_help_document_zh <- function() {
       bp_help_faq("为什么导入代码后出现 Raw R？", "该结构超出当前解析子集。BioPlotBlocks 会优先保留原始表达式，避免丢失语义。"),
       bp_help_faq("为什么某些函数带警告三角？", "它们处于 experimental 状态。可以使用，但应仔细检查生成代码、预览和目标 ggplot2 版本。"),
       bp_help_faq("预览失败时怎么办？", "先查看 Preview 错误文本和底部诊断，再检查数据列名、Raw expression 语法、参数类型以及模块顺序。"),
+      bp_help_faq("RData 中哪些对象可以导入？", "本阶段支持 data.frame、tibble、matrix 和简单表格列表。函数、环境、连接、公式、外部指针会被禁止，其他复杂类会标记为暂不支持。"),
       bp_help_faq("如何重新开始？", "先保存需要保留的 JSON 或 R 文件，然后单击 New；也可以重新载入 Volcano plot 模板。")
     )
   )
@@ -373,6 +378,9 @@ bp_help_document_en <- function() {
         list(title = "All arguments", text = "Every argument declared by the current module."),
         list(title = "Mapped aesthetics", text = "Variables inside aes(), such as color = status."),
         list(title = "Column suggestions", text = "Mapping fields such as x, y, and color offer columns from the active data while still accepting typed column names or R expressions."),
+        list(title = "Linked data-source switching", text = "Selecting a ready source in ggplot() data synchronizes the active data, preview, and column suggestions; compatible mappings are kept and missing direct-column mappings are cleared."),
+        list(title = "Custom data expressions", text = "Typed subset(), transform(), and other R expressions keep the current active source and mappings because their output columns cannot be inferred safely. Verify them with Run preview."),
+        list(title = "Relink required", text = "Unavailable sources remain visible but cannot become plot data until their original file is re-imported or relinked."),
         list(title = "Fixed values", text = "Constants outside aes(), such as color = \"red\"."),
         list(title = "R expr", text = "Open the expression editor for calls, vectors, or other native R syntax.")
       )),
@@ -400,7 +408,8 @@ bp_help_document_en <- function() {
         list(
           list(htmltools::tags$strong("New"), "Create a fresh example scatter project and replace the current workspace."),
           list(htmltools::tags$strong("Import R"), "Parse supported R/ggplot2 code into modules; preserve unknown structures as Raw R."),
-          list(htmltools::tags$strong("Import Data"), "Import CSV, TSV, or TXT data, review types and quality, then apply confirmed column mappings to the plot."),
+          list(htmltools::tags$strong("Import Data"), "Import CSV, TSV, TXT, RDS, or RData/rda. Browse RData objects in isolation; convert matrices to data frames with explicit row-name handling."),
+          list(htmltools::tags$strong("Top Data badge"), "Open multi-source management to preview, rename, relink, or remove data. Use in plot remains a compatibility entry and follows the same switching rules as the inspector data parameter."),
           list(htmltools::tags$strong("Save"), "Download a versioned .bioplotblocks.json project."),
           list(htmltools::tags$strong("Open folder"), "Restore a previously saved JSON project and its module state."),
           list(htmltools::tags$strong("Export"), "Download the current project as an .R script.")
@@ -439,6 +448,7 @@ bp_help_document_en <- function() {
       bp_help_faq("Why did imported code become Raw R?", "The structure is outside the current parser subset. Preserving the expression prevents semantic loss."),
       bp_help_faq("Why does a function show a warning triangle?", "It is experimental. You can use it, but inspect the generated code, preview, and target ggplot2 version carefully."),
       bp_help_faq("What should I do when preview fails?", "Read the Preview error and status diagnostics, then check data column names, Raw expression syntax, argument types, and layer order."),
+      bp_help_faq("Which RData objects can I import?", "This stage supports data.frame, tibble, matrix, and simple table-like lists. Functions, environments, connections, formulas, and external pointers are forbidden; other complex classes are shown as unsupported."),
       bp_help_faq("How do I start over?", "Save any JSON or R file you need, then click New or reload the Volcano plot template.")
     )
   )

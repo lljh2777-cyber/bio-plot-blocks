@@ -67,6 +67,10 @@ bp_validate_project <- function(project, registry = NULL) {
   sources <- project$data_sources %||% list()
   source_ids <- vapply(sources, function(source) source$id %||% "", character(1))
   if (length(source_ids) && (any(!nzchar(source_ids)) || anyDuplicated(source_ids))) stop("Project data source IDs must be non-empty and unique.", call. = FALSE)
+  source_names <- vapply(sources, function(source) source$name %||% "", character(1))
+  if (length(source_names) && (any(!nzchar(source_names)) || anyDuplicated(source_names))) stop("Project data source names must be non-empty and unique.", call. = FALSE)
+  active_id <- project$active_data_source_id %||% "dataset_example"
+  if (length(source_ids) && !active_id %in% source_ids) stop("The active data source ID is not registered in the project.", call. = FALSE)
   invisible(TRUE)
 }
 
@@ -85,6 +89,10 @@ bp_migrate_project <- function(project) {
     project$runtime <- "R"
     project$package_scope <- "ggplot2"
     project$diagnostics <- project$diagnostics %||% list()
+    project$data_sources <- project$data_sources %||% list(bp_example_data_source())
+    project$active_data_source_id <- project$active_data_source_id %||% "dataset_example"
+    project$mapping_config <- project$mapping_config %||% list(dataset_id = project$active_data_source_id, plot_id = NULL, mapping = list(), confirmed_by_user = TRUE)
+    project$data_reference <- project$data_reference %||% list(strategy = "local_environment", source_id = project$active_data_source_id, symbol = "df", embedded = FALSE)
     return(project)
   }
   stop("Unsupported project schema version: ", version, call. = FALSE)

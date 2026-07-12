@@ -11,7 +11,41 @@ test_that("mapping editor combines column suggestions with manual input", {
   expect_match(html, 'data-aes-input-id="bp-aes-columns-ggplot-test-mapping-x-input"', fixed = TRUE)
   expect_match(html, 'value="log2FC" label="log2FC · numeric"', fixed = TRUE)
   expect_match(html, 'value="`Gene ID`" label="Gene ID · character"', fixed = TRUE)
+  expect_match(html, 'data-aes-key="size"', fixed = TRUE)
+  expect_match(html, 'data-aes-key="alpha"', fixed = TRUE)
   expect_match(html, "choose a suggestion or type an R expression", fixed = TRUE)
+})
+
+test_that("data argument combines registered source suggestions with manual input", {
+  source(file.path(root, "app", "modules", "workspace-server.R"), local = environment())
+  parameter <- list(name = "data", ui_control = "data_reference", formal_default = bp_null())
+  control <- bp_value_control(
+    "ggplot-test", "data", bp_argument("unset", origin = "formal"), parameter,
+    c("df · EXAMPLE · ready" = "df", "results · RDS · ready" = "results")
+  )
+  html <- htmltools::renderTags(control)$html
+  expect_match(html, 'class="bp-param-hybrid-control"', fixed = TRUE)
+  expect_match(html, 'list="bp-data-sources-ggplot-test-data"', fixed = TRUE)
+  expect_match(html, 'data-aes-input-id="bp-data-sources-ggplot-test-data-input"', fixed = TRUE)
+  expect_match(html, 'aria-label="Choose data from registered data sources"', fixed = TRUE)
+  expect_match(html, 'value="results" label="results · RDS · ready"', fixed = TRUE)
+  expect_match(html, 'placeholder="data object or R expression"', fixed = TRUE)
+})
+
+test_that("mapping dropdowns render outside the modal clipping boundary", {
+  source(file.path(root, "app", "modules", "workspace-server.R"), local = environment())
+  data <- data.frame(
+    ENSEMBL = c("ENSG1", "ENSG2"), SYMBOL = c("A", "B"),
+    logFC = c(-1, 1), FDR = c(0.01, 0.02), regulated = c("Down", "Up")
+  )
+  controls <- bp_data_mapping_controls(
+    list(data = data, profile = bp_profile_dataset(data)),
+    bp_create_project()
+  )
+  html <- htmltools::renderTags(controls)$html
+  expect_match(html, '"dropdownParent":"body"', fixed = TRUE)
+  expect_match(html, '"dropdownClass":"selectize-dropdown bp-mapping-dropdown"', fixed = TRUE)
+  expect_match(html, '"plugins":["auto_position"', fixed = TRUE)
 })
 
 test_that("Shiny import flow registers mapped CSV data", {

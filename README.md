@@ -21,7 +21,10 @@ The application starts with a ggplot2-only volcano-plot template and a determini
 - parsing of the supported generated-code subset with lossless Raw R fallback;
 - real local ggplot2 execution and plot preview;
 - first-stage CSV/TSV/TXT data import with configurable parsing, a 30-row preview, deterministic column profiling, quality warnings, and explicit type overrides;
-- a registered data-source model with manual X/Y/color/fill/shape/size/alpha/label/group mappings that drive generated ggplot2 code and real previews;
+- safe RDS import plus isolated RData/rda object browsing with data-frame/tibble whitelisting, matrix and simple-list conversion, and configurable row-name handling;
+- multi-source management for previewing, renaming, relinking, removing, and switching registered datasets through the inspector or the compatible Use in plot workflow;
+- unified data-source switching that synchronizes active data and previews, preserves compatible mappings, clears unavailable direct-column mappings, and keeps custom R data expressions conservative;
+- manual X/Y/color/fill/shape/size/alpha/label/group mapping controls with column suggestions plus typed R expressions;
 - JSON project save/restore and `.R` export;
 - a ggplot2-only bioinformatics template;
 - schema, unit, round-trip, scope, and execution tests.

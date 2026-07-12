@@ -9,9 +9,16 @@ test_that("workspace UI renders the full primary surface", {
   expect_match(html, "Generated R")
   expect_match(html, "Run preview")
   expect_match(html, "Import Data")
+  expect_match(html, "Data Sources")
   expect_match(html, "bp-preview-view-switch")
   expect_match(html, "preview_data_view")
   expect_match(html, "open-help-button")
   expect_match(html, "使用手册")
   expect_match(html, "User manual")
+})
+
+test_that("mapping dropdown stays above Bootstrap modals and backdrops", {
+  css <- paste(readLines(file.path(root, "app", "www", "app.css"), warn = FALSE), collapse = "\n")
+  expect_match(css, ".selectize-dropdown.bp-mapping-dropdown.form-control", fixed = TRUE)
+  expect_match(css, "z-index: 1080 !important", fixed = TRUE)
 })

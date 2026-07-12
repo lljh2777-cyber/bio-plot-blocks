@@ -31,7 +31,7 @@
           "formal_default": {"type": "RNull"},
           "value_types": ["data_reference", "r_null", "r_expression"],
           "ui_group": "common",
-          "ui_control": "symbol_or_expression",
+          "ui_control": "data_reference",
           "raw_expression_allowed": true,
           "omit_when_unset": true,
           "help_source": "ggplot2::ggplot installed help",

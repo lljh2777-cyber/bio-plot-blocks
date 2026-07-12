@@ -183,7 +183,7 @@ bp_generate_code <- function(project, registry = NULL, include_setup = FALSE) {
     active <- Filter(function(source) identical(source$id, active_id), sources)
     if (length(active) && !isTRUE(active[[1]]$example)) {
       source <- active[[1]]
-      setup <- paste(setup, bp_data_source_setup_line(source), sep = "\n")
+      setup <- paste(c(setup, bp_data_source_setup_line(source)), collapse = "\n")
     }
     code <- paste(setup, code, sep = "\n\n")
   }

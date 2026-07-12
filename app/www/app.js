@@ -21,6 +21,8 @@
   let projectPersistenceTimer = null;
   let projectPersistenceRetry = null;
   let projectPersistenceObserver = null;
+  let previewViewHandlerStarted = false;
+  let parameterValueHandlerStarted = false;
   const projectStorageKey = "bioplotblocks.project.v0.2";
   const pendingInputTimers = new Map();
   const resizeConfig = {
@@ -757,6 +759,35 @@
     });
   }
 
+  function initializePreviewViewHandler() {
+    if (previewViewHandlerStarted || !window.Shiny || typeof window.Shiny.addCustomMessageHandler !== "function") return;
+    previewViewHandlerStarted = true;
+    window.Shiny.addCustomMessageHandler("bp_set_preview_view", function (message) {
+      setPreviewView(message && message.view === "data" ? "data" : "plot", false);
+    });
+  }
+
+  function initializeParameterValueHandler() {
+    if (parameterValueHandlerStarted || !window.Shiny || typeof window.Shiny.addCustomMessageHandler !== "function") return;
+    parameterValueHandlerStarted = true;
+    window.Shiny.addCustomMessageHandler("bp_restore_parameter_value", function (message) {
+      if (!message || !message.instance_id || !message.param) return;
+      const inputs = Array.from(document.querySelectorAll(".bp-param-value"));
+      const input = inputs.find(function (candidate) {
+        return candidate.dataset.instanceId === message.instance_id && candidate.dataset.param === message.param;
+      });
+      if (!input) return;
+      const payload = { kind: "value", instance_id: message.instance_id, param: message.param };
+      const key = inputKey(payload);
+      if (pendingInputTimers.has(key)) {
+        window.clearTimeout(pendingInputTimers.get(key));
+        pendingInputTimers.delete(key);
+      }
+      input.value = message.value == null ? "" : String(message.value);
+      rememberTextInput(input);
+    });
+  }
+
   document.addEventListener("click", function (event) {
     if (closest(event.target, "#open-help-button")) {
       openHelp();
@@ -854,6 +885,15 @@
       } else {
         input.click();
       }
+      return;
+    }
+
+    const dataSourceAction = closest(event.target, ".bp-data-source-action[data-source-id][data-action]");
+    if (dataSourceAction) {
+      sendInput("data_source_action", {
+        source_id: dataSourceAction.dataset.sourceId,
+        action: dataSourceAction.dataset.action
+      });
       return;
     }
 
@@ -1194,6 +1234,8 @@
   function initializeInterface() {
     refreshResizeHandles();
     setPreviewView("plot", false);
+    initializePreviewViewHandler();
+    initializeParameterValueHandler();
     setHelpLanguage("zh");
     initializeHelpNavigation();
     initializeTextInputContinuity();
@@ -1210,6 +1252,8 @@
   window.addEventListener("resize", constrainResizeLayout);
   document.addEventListener("shiny:connected", function () {
     refreshResizeHandles();
+    initializePreviewViewHandler();
+    initializeParameterValueHandler();
     initializeProjectPersistence();
   });
 })();

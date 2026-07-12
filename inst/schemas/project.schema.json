@@ -9,7 +9,27 @@
     "runtime": {"const": "R"},
     "package_scope": {"const": "ggplot2"},
     "modules": {"type": "array"},
-    "data_sources": {"type": "array"},
+    "data_sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "source_type", "object_type", "status"],
+        "properties": {
+          "id": {"type": "string"},
+          "name": {"type": "string"},
+          "source_type": {"enum": ["example", "csv", "tsv", "txt", "rds", "rdata", "rda"]},
+          "original_file_name": {"type": ["string", "null"]},
+          "object_name": {"type": ["string", "null"]},
+          "object_type": {"type": "string"},
+          "original_object_type": {"type": ["string", "null"]},
+          "rows": {"type": "integer", "minimum": 0},
+          "columns": {"type": "integer", "minimum": 0},
+          "status": {"enum": ["ready", "relink_required"]},
+          "conversion": {"type": ["object", "null"]}
+        },
+        "additionalProperties": true
+      }
+    },
     "active_data_source_id": {"type": ["string", "null"]},
     "mapping_config": {"type": "object"}
   },

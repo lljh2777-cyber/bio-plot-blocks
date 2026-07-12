@@ -13,3 +13,9 @@ test_that("ordinary module instances come from ModuleSpec", {
   expect_true(all(c("mapping", "data", "size", "alpha", "shape") %in% names(instance$arguments)))
   expect_true(all(vapply(instance$arguments, function(argument) identical(argument$state, "unset"), logical(1))))
 })
+
+test_that("ggplot data uses the registered-source hybrid control", {
+  spec <- bp_get_spec(registry, "r.ggplot2.ggplot")
+  parameter <- Filter(function(item) identical(item$name, "data"), spec$parameters)[[1]]
+  expect_identical(parameter$ui_control, "data_reference")
+})

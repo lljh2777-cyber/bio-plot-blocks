@@ -93,3 +93,82 @@ test_that("active data columns become code-safe mapping suggestions", {
   suggestions <- bp_active_data_column_suggestions(project)
   expect_identical(unname(suggestions[["Gene ID · character"]]), "`Gene ID`")
 })
+
+test_that("registered data sources become code-safe data argument suggestions", {
+  project <- bp_create_project()
+  suggestions <- bp_data_source_reference_suggestions(project)
+  expect_identical(unname(suggestions[["df · EXAMPLE · ready"]]), "df")
+
+  imported <- bp_example_data_source()
+  imported$id <- "dataset_custom"
+  imported$name <- "results_table"
+  imported$source_type <- "rds"
+  imported$example <- FALSE
+  imported$status <- "ready"
+  project$data_sources <- c(project$data_sources, list(imported))
+  suggestions <- bp_data_source_reference_suggestions(project)
+  expect_identical(unname(suggestions[["results_table · RDS · ready"]]), "results_table")
+
+  project$data_sources[[2]]$status <- "relink_required"
+  suggestions <- bp_data_source_reference_suggestions(project)
+  expect_identical(unname(suggestions[["results_table · RDS · relink required"]]), "results_table")
+})
+
+test_that("switching registered data preserves compatible mappings and clears missing columns", {
+  project <- bp_project_from_template("bio.volcano.basic", registry)
+  root_index <- which(vapply(project$modules, function(module) identical(module$module_id, "r.ggplot2.ggplot"), logical(1)))[[1]]
+  point_index <- which(vapply(project$modules, function(module) identical(module$module_id, "r.ggplot2.geom_point"), logical(1)))[[1]]
+  project$modules[[root_index]]$arguments$mapping <- bp_argument("explicit", bp_aes_mapping(list(
+    x = bp_symbol("log2FC"), y = bp_symbol("neg_log10_padj")
+  )), "formal")
+  project$modules[[point_index]]$arguments$mapping <- bp_argument("explicit", bp_aes_mapping(list(
+    color = bp_symbol("status"), label = bp_symbol("missing_label"), group = bp_raw_expression("interaction(status, batch)")
+  )), "formal")
+  original_size <- project$modules[[point_index]]$arguments$size
+  data <- data.frame(log2FC = c(-1, 1), status = c("Down", "Up"))
+  profile <- bp_profile_dataset(data)
+  source <- list(
+    id = "dataset_switch", name = "switched_data", source_type = "rds",
+    original_file_name = "switched.rds", object_type = "data.frame",
+    rows = nrow(data), columns = ncol(data), status = "ready", example = FALSE,
+    relink_required = FALSE, column_metadata = profile$column_metadata,
+    quality = list(warnings = list()), parse_options = list()
+  )
+
+  result <- bp_switch_project_data_source(project, source, data)
+  switched <- result$project
+  root_mapping <- switched$modules[[root_index]]$arguments$mapping
+  point_mapping <- switched$modules[[point_index]]$arguments$mapping
+  expect_setequal(names(root_mapping$value$mappings), "x")
+  expect_setequal(names(point_mapping$value$mappings), c("color", "group"))
+  expect_identical(bp_value_to_source(point_mapping$value$mappings$group), "interaction(status, batch)")
+  expect_identical(switched$modules[[point_index]]$arguments$size, original_size)
+  expect_identical(result$preserved_count, 3L)
+  expect_identical(result$cleared_count, 2L)
+  expect_identical(switched$active_data_source_id, source$id)
+  expect_identical(switched$data_reference$symbol, source$name)
+  expect_identical(switched$mapping_config$mapping$x, "log2FC")
+  expect_false("y" %in% names(switched$mapping_config$mapping))
+})
+
+test_that("an explicitly mapped aes stays explicit when every direct column is cleared", {
+  project <- bp_basic_scatter_project(registry)
+  data <- data.frame(other = 1:3)
+  profile <- bp_profile_dataset(data)
+  source <- list(
+    id = "dataset_other", name = "other_data", source_type = "csv",
+    original_file_name = "other.csv", object_type = "data.frame",
+    rows = nrow(data), columns = ncol(data), status = "ready", example = FALSE,
+    relink_required = FALSE, column_metadata = profile$column_metadata,
+    quality = list(warnings = list()), parse_options = list()
+  )
+  result <- bp_switch_project_data_source(project, source, data)
+  mapping <- result$project$modules[[1]]$arguments$mapping
+  expect_identical(mapping$state, "explicit")
+  expect_identical(bp_value_to_source(mapping$value), "aes()")
+  expect_identical(result$cleared_count, 2L)
+
+  source$status <- "relink_required"
+  source$relink_required <- TRUE
+  expect_error(bp_switch_project_data_source(project, source, data), "must be relinked")
+})
