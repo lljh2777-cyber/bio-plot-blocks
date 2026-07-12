@@ -21,7 +21,7 @@ test_that("project JSON restores typed module state", {
 test_that("browser persistence envelope preserves the current project", {
   project <- bp_project_from_template("bio.volcano.basic", registry)
   project$name <- "Persisted browser project"
-  selected <- project$modules[[6]]$instance_id
+  selected <- project$modules[[length(project$modules)]]$instance_id
   payload <- jsonlite::toJSON(
     list(format_version = 1L, project = project, selected = selected),
     auto_unbox = TRUE,
@@ -33,6 +33,23 @@ test_that("browser persistence envelope preserves the current project", {
   expect_silent(bp_validate_project(restored$project, registry))
   expect_identical(restored$selected, selected)
   expect_identical(bp_generate_code(restored$project, registry), bp_generate_code(project, registry))
+})
+
+test_that("project migration removes legacy automatic volcano lines only", {
+  project <- bp_project_from_template("bio.volcano.basic", registry)
+  automatic <- bp_instantiate_module("r.ggplot2.geom_vline", registry)
+  automatic$visual_managed <- TRUE
+  automatic$visual_role <- "volcano_fc_threshold"
+  custom <- bp_instantiate_module("r.ggplot2.geom_hline", registry)
+  custom$visual_managed <- TRUE
+  custom$visual_role <- "visual_horizontal_reference_lines"
+  project$modules <- c(project$modules, list(automatic, custom))
+
+  migrated <- bp_migrate_project(project)
+  roles <- vapply(migrated$modules, function(instance) instance$visual_role %||% "", character(1))
+
+  expect_false("volcano_fc_threshold" %in% roles)
+  expect_true("visual_horizontal_reference_lines" %in% roles)
 })
 
 test_that("scope scan permits only visible ggplot2 add-on calls", {

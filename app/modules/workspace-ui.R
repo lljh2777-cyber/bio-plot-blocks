@@ -248,6 +248,25 @@ bp_workspace_ui <- function(root) {
                 shiny::selectInput("visual_theme", "图表主题", choices = c("经典" = "classic", "简洁" = "minimal", "黑白" = "bw"), width = "100%"),
                 shiny::numericInput("visual_base_size", "基础字号", value = 12, min = 6, max = 40, step = 1, width = "100%")
               ),
+              htmltools::tags$div(
+                class = "bp-visual-reference-card",
+                htmltools::tags$div(
+                  class = "bp-visual-reference-heading",
+                  htmltools::tags$strong("参考虚线（可选）"),
+                  htmltools::tags$span("可使用逗号、空格或分号分隔多个数值，例如 -1, 0, 1。")
+                ),
+                htmltools::tags$div(
+                  class = "bp-visual-reference-grid",
+                  shiny::textInput("visual_vlines", "纵向虚线位置", value = "", placeholder = "例如 -1, 1", width = "100%"),
+                  shiny::textInput("visual_hlines", "横向虚线位置", value = "", placeholder = "例如 1.3, 2", width = "100%"),
+                  htmltools::tags$div(
+                    class = "bp-visual-color-control",
+                    htmltools::tags$span(class = "bp-visual-color-swatch"),
+                    shiny::textInput("visual_reference_color", "虚线颜色", value = "#6B7280", width = "100%")
+                  ),
+                  shiny::numericInput("visual_reference_width", "虚线宽度", value = 0.6, min = 0.1, max = 10, step = 0.1, width = "100%")
+                )
+              ),
               shiny::uiOutput("visual_advanced_state")
             ),
             htmltools::tags$section(

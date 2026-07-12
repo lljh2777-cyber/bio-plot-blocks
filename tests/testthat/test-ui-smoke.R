@@ -24,6 +24,10 @@ test_that("workspace UI renders the full primary surface", {
   expect_match(html, "创建科研图表")
   expect_match(html, "visual_auto_preview")
   expect_match(html, "visual_chart_volcano")
+  expect_match(html, "visual_vlines")
+  expect_match(html, "visual_hlines")
+  expect_match(html, "visual_reference_color")
+  expect_match(html, "bp-visual-reference-card")
   expect_match(html, "倍数变化阈值")
   expect_match(html, "visual_auto_status")
 })
@@ -38,7 +42,9 @@ test_that("visual and advanced modes share a visibility-aware shell", {
   expect_match(css, ".bp-visual-preview-canvas", fixed = TRUE)
   expect_match(js, "bp_visual_chart_type", fixed = TRUE)
   expect_match(js, "setVisualChartType", fixed = TRUE)
+  expect_match(js, "#visual_point_color, #visual_reference_color", fixed = TRUE)
   expect_match(css, ".bp-volcano-only[hidden]", fixed = TRUE)
+  expect_match(css, ".bp-visual-reference-card", fixed = TRUE)
 })
 
 test_that("topbar has responsive overflow safeguards in both modes", {

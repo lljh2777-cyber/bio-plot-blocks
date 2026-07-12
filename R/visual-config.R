@@ -23,6 +23,10 @@ bp_visual_scatter_defaults <- function(project = NULL) {
     y_scale = "linear",
     theme = "classic",
     base_size = 12,
+    vertical_reference_lines = "",
+    horizontal_reference_lines = "",
+    reference_line_color = "#6B7280",
+    reference_line_width = 0.6,
     advanced_preserved = FALSE
   )
 }
@@ -56,6 +60,22 @@ bp_visual_scalar_number <- function(value, default, minimum = -Inf, maximum = In
   min(max(value[[1]], minimum), maximum)
 }
 
+bp_visual_parse_reference_values <- function(value) {
+  source <- trimws(bp_visual_scalar_character(value, ""))
+  if (!nzchar(source)) return(list(valid = TRUE, values = numeric(), invalid = character()))
+  source <- gsub("，", ",", source, fixed = TRUE)
+  tokens <- unlist(strsplit(source, "[,;[:space:]]+", perl = TRUE), use.names = FALSE)
+  tokens <- tokens[nzchar(tokens)]
+  values <- suppressWarnings(as.numeric(tokens))
+  invalid <- tokens[is.na(values) | !is.finite(values)]
+  list(valid = !length(invalid), values = values[!is.na(values) & is.finite(values)], invalid = invalid)
+}
+
+bp_visual_reference_values_source <- function(values) {
+  sources <- vapply(values, bp_visual_number_source, character(1))
+  if (length(sources) == 1L) sources[[1]] else paste0("c(", paste(sources, collapse = ", "), ")")
+}
+
 bp_normalize_visual_scatter_config <- function(config, project = NULL) {
   defaults <- bp_visual_scatter_defaults(project)
   config <- utils::modifyList(defaults, config %||% list(), keep.null = TRUE)
@@ -63,13 +83,16 @@ bp_normalize_visual_scatter_config <- function(config, project = NULL) {
     "chart_type", "data_source_id", "x_field", "y_field", "color_field",
     "size_field", "label_field", "point_color", "shape", "palette",
     "trend_line", "title", "x_label", "y_label", "legend_title",
-    "x_scale", "y_scale", "theme"
+    "x_scale", "y_scale", "theme", "vertical_reference_lines",
+    "horizontal_reference_lines", "reference_line_color"
   )
   for (name in character_fields) config[[name]] <- bp_visual_scalar_character(config[[name]], defaults[[name]])
   if (!grepl("^#[0-9A-Fa-f]{6}$", config$point_color)) config$point_color <- defaults$point_color
   config$point_size <- bp_visual_scalar_number(config$point_size, defaults$point_size, 0.1, 20)
   config$alpha <- bp_visual_scalar_number(config$alpha, defaults$alpha, 0, 1)
   config$base_size <- bp_visual_scalar_number(config$base_size, defaults$base_size, 6, 40)
+  config$reference_line_width <- bp_visual_scalar_number(config$reference_line_width, defaults$reference_line_width, 0.1, 10)
+  if (!grepl("^#[0-9A-Fa-f]{6}$", config$reference_line_color)) config$reference_line_color <- defaults$reference_line_color
   if (!config$shape %in% as.character(c(0:25))) config$shape <- defaults$shape
   if (!config$palette %in% c("default", "blue_red", "viridis_like")) config$palette <- defaults$palette
   if (!config$trend_line %in% c("none", "linear", "smooth")) config$trend_line <- defaults$trend_line
@@ -407,6 +430,38 @@ bp_visual_palette_source <- function(palette) {
   )
 }
 
+bp_visual_apply_reference_layer <- function(project, config, registry, module_id, role, intercept_name, values_source) {
+  parsed <- bp_visual_parse_reference_values(values_source)
+  if (!isTRUE(parsed$valid)) return(project)
+  indices <- which(vapply(project$modules %||% list(), function(instance) {
+    identical(instance$module_id, module_id) && identical(instance$visual_role %||% "", role)
+  }, logical(1)))
+  layer <- if (length(indices)) project$modules[[indices[[1]]]] else bp_instantiate_module(module_id, registry)
+  if (length(indices)) project$modules <- project$modules[-indices]
+  if (!length(parsed$values)) return(project)
+  layer$visual_managed <- TRUE
+  layer$visual_role <- role
+  layer$arguments[[intercept_name]] <- bp_argument(
+    "raw_expression", bp_raw_expression(bp_visual_reference_values_source(parsed$values)), "formal"
+  )
+  layer$arguments$color <- bp_argument("explicit", bp_character(config$reference_line_color), "dots_aesthetic")
+  layer$arguments$linetype <- bp_argument("explicit", bp_character("dashed"), "dots_aesthetic")
+  layer$arguments$linewidth <- bp_argument("explicit", bp_double(config$reference_line_width), "dots_aesthetic")
+  project$modules[[length(project$modules) + 1L]] <- layer
+  project
+}
+
+bp_visual_apply_reference_lines <- function(project, config, registry) {
+  project <- bp_visual_apply_reference_layer(
+    project, config, registry, "r.ggplot2.geom_vline", "visual_vertical_reference_lines",
+    "xintercept", config$vertical_reference_lines
+  )
+  bp_visual_apply_reference_layer(
+    project, config, registry, "r.ggplot2.geom_hline", "visual_horizontal_reference_lines",
+    "yintercept", config$horizontal_reference_lines
+  )
+}
+
 bp_apply_visual_scatter_config <- function(project, config, registry = NULL) {
   registry <- registry %||% bp_load_registry()
   project <- unserialize(serialize(project, NULL))
@@ -479,6 +534,7 @@ bp_apply_visual_scatter_config <- function(project, config, registry = NULL) {
   point$arguments$alpha <- bp_argument("explicit", bp_double(config$alpha), "dots_aesthetic")
   point$arguments$shape <- bp_argument("explicit", bp_double(as.numeric(config$shape)), "dots_aesthetic")
   project$modules[[point_index]] <- point
+  project <- bp_visual_apply_reference_lines(project, config, registry)
 
   label_indices <- which(vapply(project$modules, function(instance) {
     identical(instance$module_id, "r.ggplot2.geom_text") && isTRUE(instance$visual_managed)
@@ -606,6 +662,10 @@ bp_apply_visual_scatter_config <- function(project, config, registry = NULL) {
 }
 
 bp_validate_visual_scatter_config <- function(config, columns = character()) {
+  raw_config <- config %||% list()
+  vertical <- bp_visual_parse_reference_values(raw_config$vertical_reference_lines %||% "")
+  horizontal <- bp_visual_parse_reference_values(raw_config$horizontal_reference_lines %||% "")
+  reference_color <- trimws(bp_visual_scalar_character(raw_config$reference_line_color, "#6B7280"))
   config <- bp_normalize_visual_scatter_config(config)
   errors <- character()
   if (!nzchar(config$x_field)) errors <- c(errors, "请选择 X 轴字段。")
@@ -616,6 +676,9 @@ bp_validate_visual_scatter_config <- function(config, columns = character()) {
       if (nzchar(value) && !value %in% columns) errors <- c(errors, paste0("字段 ‘", value, "’ 不在当前数据源中。"))
     }
   }
+  if (!isTRUE(vertical$valid)) errors <- c(errors, paste0("纵向虚线位置包含无效数值：", paste(vertical$invalid, collapse = "、"), "。"))
+  if (!isTRUE(horizontal$valid)) errors <- c(errors, paste0("横向虚线位置包含无效数值：", paste(horizontal$invalid, collapse = "、"), "。"))
+  if (!grepl("^#[0-9A-Fa-f]{6}$", reference_color)) errors <- c(errors, "虚线颜色需使用 6 位十六进制颜色，例如 #6B7280。")
   list(valid = !length(errors), errors = unique(errors))
 }
 
@@ -684,43 +747,33 @@ bp_visual_config_from_project <- function(project) {
   }
 }
 
+bp_visual_remove_automatic_volcano_lines <- function(project) {
+  legacy_template <- identical(project$template_provenance$id %||% "", "bio.volcano.basic")
+  project$modules <- Filter(function(instance) {
+    role <- instance$visual_role %||% ""
+    if (role %in% c("volcano_fc_threshold", "volcano_significance_threshold")) return(FALSE)
+    if (!legacy_template || isTRUE(instance$visual_managed)) return(TRUE)
+    if (identical(instance$module_id, "r.ggplot2.geom_vline")) {
+      return(!identical(instance$arguments$xintercept$value$source %||% "", "c(-1, 1)"))
+    }
+    if (identical(instance$module_id, "r.ggplot2.geom_hline")) {
+      return(!identical(instance$arguments$yintercept$value$source %||% "", "-log10(0.05)"))
+    }
+    TRUE
+  }, project$modules %||% list())
+  project
+}
+
 bp_visual_prepare_volcano_template <- function(project) {
+  project <- bp_visual_remove_automatic_volcano_lines(project)
   if (!identical(project$template_provenance$id %||% "", "bio.volcano.basic")) return(project)
   project$modules <- lapply(project$modules %||% list(), function(instance) {
-    if (identical(instance$module_id, "r.ggplot2.geom_vline")) {
-      instance$visual_managed <- TRUE
-      instance$visual_role <- "volcano_fc_threshold"
-    } else if (identical(instance$module_id, "r.ggplot2.geom_hline")) {
-      instance$visual_managed <- TRUE
-      instance$visual_role <- "volcano_significance_threshold"
-    } else if (identical(instance$module_id, "r.ggplot2.scale_color_manual")) {
+    if (identical(instance$module_id, "r.ggplot2.scale_color_manual")) {
       instance$visual_managed <- TRUE
       instance$visual_palette <- "blue_red"
     }
     instance
   })
-  project
-}
-
-bp_visual_upsert_volcano_threshold <- function(project, module_id, role, intercept_name, intercept_value, registry) {
-  indices <- which(vapply(project$modules %||% list(), function(instance) {
-    identical(instance$module_id, module_id) && identical(instance$visual_role %||% "", role)
-  }, logical(1)))
-  if (length(indices)) {
-    index <- indices[[length(indices)]]
-    layer <- project$modules[[index]]
-  } else {
-    layer <- bp_instantiate_module(module_id, registry)
-    project$modules[[length(project$modules) + 1L]] <- layer
-    index <- length(project$modules)
-  }
-  layer$visual_managed <- TRUE
-  layer$visual_role <- role
-  layer$arguments[[intercept_name]] <- bp_argument("raw_expression", bp_raw_expression(intercept_value), "formal")
-  layer$arguments$color <- bp_argument("explicit", bp_character("grey40"), "dots_aesthetic")
-  layer$arguments$linetype <- bp_argument("explicit", bp_character("dashed"), "dots_aesthetic")
-  layer$arguments$linewidth <- bp_argument("explicit", bp_double(0.6), "dots_aesthetic")
-  project$modules[[index]] <- layer
   project
 }
 
@@ -783,16 +836,6 @@ bp_apply_visual_volcano_config <- function(project, config, registry = NULL) {
     scale$visual_palette <- palette
     project$modules[[scale_index]] <- scale
   }
-
-  cutoff <- bp_visual_number_source(config$fold_change_cutoff)
-  project <- bp_visual_upsert_volcano_threshold(
-    project, "r.ggplot2.geom_vline", "volcano_fc_threshold", "xintercept",
-    paste0("c(-", cutoff, ", ", cutoff, ")"), registry
-  )
-  project <- bp_visual_upsert_volcano_threshold(
-    project, "r.ggplot2.geom_hline", "volcano_significance_threshold", "yintercept",
-    bp_visual_volcano_y_threshold_source(config), registry
-  )
 
   root_index <- bp_visual_first_instance(project, "r.ggplot2.ggplot")
   root <- project$modules[[root_index]]

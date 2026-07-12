@@ -19,7 +19,7 @@ test_that("volcano recommendations recognize fold-change and significance column
   expect_identical(recommendation$label_field, "gene")
 })
 
-test_that("volcano config compiles thresholds and automatic regulation groups", {
+test_that("volcano config compiles automatic regulation groups without automatic reference lines", {
   project <- bp_basic_scatter_project(registry)
   config <- bp_visual_volcano_defaults(project)
   config$x_field <- "log2FC"
@@ -36,11 +36,9 @@ test_that("volcano config compiles thresholds and automatic regulation groups", 
   expect_identical(result$project$visual_config$active_chart_type, "volcano")
   expect_match(code, "y = -log10(padj)", fixed = TRUE)
   expect_match(code, "color = ifelse(log2FC >= 1 & padj <= 0.05", fixed = TRUE)
-  expect_match(code, "geom_vline(xintercept = c(-1, 1)", fixed = TRUE)
-  expect_match(code, "geom_hline(yintercept = -log10(0.05)", fixed = TRUE)
   expect_match(code, 'color = "Regulation"', fixed = TRUE)
-  expect_true("volcano_fc_threshold" %in% roles)
-  expect_true("volcano_significance_threshold" %in% roles)
+  expect_false(any(grepl("^volcano_", roles)))
+  expect_false(grepl("geom_vline|geom_hline", code))
   expect_true(bp_execute_project(result$project, registry)$ok)
 })
 
@@ -67,6 +65,67 @@ test_that("switching from volcano back to scatter removes managed threshold laye
   expect_true(bp_execute_project(result$project, registry)$ok)
 })
 
+test_that("scatter config supports multiple vertical and horizontal reference lines", {
+  project <- bp_basic_scatter_project(registry)
+  config <- bp_visual_scatter_config_from_project(project)
+  config$vertical_reference_lines <- "-1, 0, 1"
+  config$horizontal_reference_lines <- "1.3; 2"
+  config$reference_line_color <- "#6B7280"
+  config$reference_line_width <- 0.8
+
+  result <- bp_apply_visual_scatter_config(project, config, registry)
+  code <- bp_generate_code(result$project, registry)
+  roles <- vapply(result$project$modules, function(instance) instance$visual_role %||% "", character(1))
+
+  expect_match(code, "geom_vline(xintercept = c(-1, 0, 1)", fixed = TRUE)
+  expect_match(code, "geom_hline(yintercept = c(1.3, 2)", fixed = TRUE)
+  expect_match(code, 'color = "#6B7280", linetype = "dashed", linewidth = 0.8', fixed = TRUE)
+  expect_true("visual_vertical_reference_lines" %in% roles)
+  expect_true("visual_horizontal_reference_lines" %in% roles)
+  expect_true(bp_execute_project(result$project, registry)$ok)
+
+  config <- result$config
+  config$vertical_reference_lines <- ""
+  config$horizontal_reference_lines <- ""
+  cleared <- bp_apply_visual_scatter_config(result$project, config, registry)$project
+  cleared_roles <- vapply(cleared$modules, function(instance) instance$visual_role %||% "", character(1))
+  expect_false(any(grepl("^visual_(vertical|horizontal)_reference_lines$", cleared_roles)))
+})
+
+test_that("reference-line validation rejects non-numeric positions", {
+  config <- bp_visual_scatter_defaults()
+  config$x_field <- "PC1"
+  config$y_field <- "PC2"
+  config$vertical_reference_lines <- "-1, invalid, 1"
+  validation <- bp_validate_visual_scatter_config(config, c("PC1", "PC2"))
+
+  expect_false(validation$valid)
+  expect_true(any(grepl("invalid", validation$errors, fixed = TRUE)))
+
+  config$vertical_reference_lines <- "-1; 0 1"
+  expect_true(bp_validate_visual_scatter_config(config, c("PC1", "PC2"))$valid)
+})
+
+test_that("volcano displays only custom reference lines", {
+  project <- bp_basic_scatter_project(registry)
+  config <- bp_visual_volcano_defaults(project)
+  config$x_field <- "log2FC"
+  config$y_field <- "padj"
+  config$y_scale <- "neg_log10"
+  config$color_field <- ""
+  config$vertical_reference_lines <- "0"
+  config$horizontal_reference_lines <- "2"
+
+  result <- bp_apply_visual_volcano_config(project, config, registry)
+  roles <- vapply(result$project$modules, function(instance) instance$visual_role %||% "", character(1))
+
+  expect_true(all(c("visual_vertical_reference_lines", "visual_horizontal_reference_lines") %in% roles))
+  expect_false(any(grepl("^volcano_", roles)))
+  expect_equal(sum(vapply(result$project$modules, function(instance) identical(instance$module_id, "r.ggplot2.geom_vline"), logical(1))), 1L)
+  expect_equal(sum(vapply(result$project$modules, function(instance) identical(instance$module_id, "r.ggplot2.geom_hline"), logical(1))), 1L)
+  expect_true(bp_execute_project(result$project, registry)$ok)
+})
+
 test_that("visual scatter settings compile through ordinary modules", {
   project <- bp_project_from_template("bio.volcano.basic", registry)
   config <- bp_visual_scatter_config_from_project(project)
@@ -85,8 +144,8 @@ test_that("visual scatter settings compile through ordinary modules", {
   expect_match(code, 'geom_smooth(method = "lm"', fixed = TRUE)
   expect_match(code, "geom_text(", fixed = TRUE)
   expect_match(code, 'labs(title = "Visual volcano"', fixed = TRUE)
-  expect_true("r.ggplot2.geom_vline" %in% module_ids)
-  expect_true("r.ggplot2.geom_hline" %in% module_ids)
+  expect_false("r.ggplot2.geom_vline" %in% module_ids)
+  expect_false("r.ggplot2.geom_hline" %in% module_ids)
   expect_true(isTRUE(result$config$advanced_preserved))
   expect_true(bp_execute_project(result$project, registry)$ok)
 })

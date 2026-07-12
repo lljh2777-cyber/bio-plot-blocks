@@ -3761,6 +3761,42 @@ html.bp-interface-visual .bp-project-name-wrap {
   pointer-events: none;
 }
 
+.bp-visual-reference-card {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--bp-border);
+  border-radius: 7px;
+  background: var(--bp-subtle);
+}
+
+.bp-visual-reference-heading strong,
+.bp-visual-reference-heading span {
+  display: block;
+}
+
+.bp-visual-reference-heading strong {
+  color: var(--bp-text);
+  font-size: 10.5px;
+}
+
+.bp-visual-reference-heading span {
+  margin-top: 3px;
+  color: var(--bp-text-muted);
+  font-size: 8.5px;
+  line-height: 1.4;
+}
+
+.bp-visual-reference-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 10px;
+  margin-top: 9px;
+}
+
+.bp-visual-reference-grid .form-group {
+  margin-bottom: 8px;
+}
+
 .bp-visual-advanced-note,
 .bp-visual-recommendation,
 .bp-visual-validation-card {
@@ -4198,6 +4234,10 @@ html.bp-interface-visual .bp-project-name-wrap {
 
   .bp-mode-button {
     flex: 1 1 50%;
+  }
+
+  .bp-visual-reference-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .bp-visual-workspace {

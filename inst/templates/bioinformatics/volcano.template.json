@@ -45,22 +45,6 @@
       }
     },
     {
-      "module_id": "r.ggplot2.geom_vline",
-      "arguments": {
-        "xintercept": {"state": "raw_expression", "origin": "formal", "value": {"type": "RRawExpression", "source": "c(-1, 1)"}},
-        "linetype": {"state": "explicit", "origin": "dots_aesthetic", "value": {"type": "RCharacter", "value": "dashed"}},
-        "color": {"state": "explicit", "origin": "dots_aesthetic", "value": {"type": "RCharacter", "value": "grey40"}}
-      }
-    },
-    {
-      "module_id": "r.ggplot2.geom_hline",
-      "arguments": {
-        "yintercept": {"state": "raw_expression", "origin": "formal", "value": {"type": "RRawExpression", "source": "-log10(0.05)"}},
-        "linetype": {"state": "explicit", "origin": "dots_aesthetic", "value": {"type": "RCharacter", "value": "dashed"}},
-        "color": {"state": "explicit", "origin": "dots_aesthetic", "value": {"type": "RCharacter", "value": "grey40"}}
-      }
-    },
-    {
       "module_id": "r.ggplot2.scale_color_manual",
       "arguments": {
         "values": {"state": "raw_expression", "origin": "formal", "value": {"type": "RRawExpression", "source": "c(Down = \"#2C7FB8\", NS = \"grey70\", Up = \"#D73027\")"}}

@@ -877,6 +877,10 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       y_scale = input$visual_y_scale %||% current$y_scale,
       theme = input$visual_theme %||% current$theme,
       base_size = input$visual_base_size %||% current$base_size,
+      vertical_reference_lines = input$visual_vlines %||% current$vertical_reference_lines %||% "",
+      horizontal_reference_lines = input$visual_hlines %||% current$horizontal_reference_lines %||% "",
+      reference_line_color = input$visual_reference_color %||% current$reference_line_color %||% "#6B7280",
+      reference_line_width = input$visual_reference_width %||% current$reference_line_width %||% 0.6,
       fold_change_cutoff = input$visual_fc_cutoff %||% current$fold_change_cutoff %||% 1,
       significance_cutoff = input$visual_p_cutoff %||% current$significance_cutoff %||% 0.05,
       auto_status = if (is.null(input$visual_auto_status)) isTRUE(current$auto_status %||% TRUE) else isTRUE(input$visual_auto_status),
@@ -944,6 +948,10 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     shiny::updateTextInput(session, "visual_x_label", value = config$x_label)
     shiny::updateTextInput(session, "visual_y_label", value = config$y_label)
     shiny::updateTextInput(session, "visual_legend_title", value = config$legend_title)
+    shiny::updateTextInput(session, "visual_vlines", value = config$vertical_reference_lines %||% "")
+    shiny::updateTextInput(session, "visual_hlines", value = config$horizontal_reference_lines %||% "")
+    shiny::updateTextInput(session, "visual_reference_color", value = config$reference_line_color %||% "#6B7280")
+    shiny::updateNumericInput(session, "visual_reference_width", value = config$reference_line_width %||% 0.6)
     shiny::updateNumericInput(session, "visual_fc_cutoff", value = config$fold_change_cutoff %||% 1)
     shiny::updateNumericInput(session, "visual_p_cutoff", value = config$significance_cutoff %||% 0.05)
     shiny::updateCheckboxInput(session, "visual_auto_status", value = isTRUE(config$auto_status %||% TRUE))
@@ -1924,6 +1932,16 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     raw_config <- visual_config_reactive()
     if (!grepl("^#[0-9A-Fa-f]{6}$", trimws(raw_config$point_color %||% ""))) {
       state$visual_input_error <- "invalid_color"
+      return()
+    }
+    if (!grepl("^#[0-9A-Fa-f]{6}$", trimws(raw_config$reference_line_color %||% ""))) {
+      state$visual_input_error <- "invalid_reference_color"
+      return()
+    }
+    vertical_lines <- bp_visual_parse_reference_values(raw_config$vertical_reference_lines)
+    horizontal_lines <- bp_visual_parse_reference_values(raw_config$horizontal_reference_lines)
+    if (!isTRUE(vertical_lines$valid) || !isTRUE(horizontal_lines$valid)) {
+      state$visual_input_error <- "invalid_reference_lines"
       return()
     }
     state$visual_input_error <- NULL

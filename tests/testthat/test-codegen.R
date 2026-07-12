@@ -3,7 +3,7 @@ test_that("template generates deterministic visible ggplot2 code", {
   code <- bp_generate_code(project, registry)
   expect_match(code, "p <- ggplot\\(data = df")
   expect_match(code, "geom_point\\(mapping = aes\\(color = status\\)")
-  expect_match(code, "geom_vline\\(xintercept = c\\(-1, 1\\)")
+  expect_false(grepl("geom_vline|geom_hline", code))
   expect_match(code, "theme_classic\\(base_size = 12\\)")
   expect_false(grepl("dplyr|ggrepel|ggpubr|patchwork", code))
 })

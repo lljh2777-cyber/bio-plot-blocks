@@ -1190,7 +1190,7 @@
   });
 
   document.addEventListener("input", function (event) {
-    const visualColor = closest(event.target, "#visual_point_color");
+    const visualColor = closest(event.target, "#visual_point_color, #visual_reference_color");
     if (visualColor) updateVisualColorSwatch(visualColor);
 
     const moduleSearch = closest(event.target, "#module_search");
@@ -1502,6 +1502,7 @@
     initializeTextInputContinuity();
     initializeProjectPersistence();
     updateVisualColorSwatch(document.getElementById("visual_point_color"));
+    updateVisualColorSwatch(document.getElementById("visual_reference_color"));
   }
 
   if (readStoredProject()) document.documentElement.classList.add("bp-restoring-project");

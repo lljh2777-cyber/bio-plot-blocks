@@ -90,6 +90,7 @@ bp_migrate_project <- function(project) {
     project$visual_config$active_chart_type <- project$visual_config$active_chart_type %||% "scatter"
     project$visual_config$scatter <- project$visual_config$scatter %||% bp_visual_scatter_defaults(project)
     project$visual_config$volcano <- project$visual_config$volcano %||% bp_visual_volcano_defaults(project)
+    project <- bp_visual_remove_automatic_volcano_lines(project)
     return(project)
   }
   if (identical(version, "0.1.0")) {
@@ -106,6 +107,7 @@ bp_migrate_project <- function(project) {
     project$visual_config$active_chart_type <- project$visual_config$active_chart_type %||% "scatter"
     project$visual_config$scatter <- project$visual_config$scatter %||% bp_visual_scatter_defaults(project)
     project$visual_config$volcano <- project$visual_config$volcano %||% bp_visual_volcano_defaults(project)
+    project <- bp_visual_remove_automatic_volcano_lines(project)
     return(project)
   }
   stop("Unsupported project schema version: ", version, call. = FALSE)
