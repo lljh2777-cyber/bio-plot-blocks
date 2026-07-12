@@ -96,40 +96,27 @@ bp_workspace_ui <- function(root) {
       ),
       htmltools::tags$main(
         class = "bp-workspace",
-        htmltools::tags$aside(
-          class = "bp-panel bp-library-panel",
-          `aria-label` = "Module library",
-          htmltools::tags$div(
-            class = "bp-library-search",
-            htmltools::tags$span(class = "bp-search-icon", bp_icon("search", 17)),
-            shiny::textInput("module_search", label = NULL, value = "", placeholder = "Search functions")
-          ),
-          shiny::uiOutput("library_filters"),
-          htmltools::tags$div(
-            class = "bp-library-heading",
-            htmltools::tags$span("Function library"),
-            htmltools::tags$span(class = "bp-library-heading-meta", "Package · Status")
-          ),
-          shiny::uiOutput("module_library"),
-          shiny::uiOutput("template_library")
-        ),
-        bp_resize_handle("vertical", "library", "Resize module library and layer stack"),
         htmltools::tags$section(
-          class = "bp-panel bp-stack-panel",
-          `aria-label` = "Layer stack",
+          class = "bp-panel bp-stack-panel bp-builder-panel",
+          `aria-label` = "Layer builder",
           htmltools::tags$div(
             class = "bp-panel-titlebar",
             htmltools::tags$h2("Layer stack"),
             htmltools::tags$div(
               class = "bp-panel-actions",
               bp_action_button("undo", "Undo", "undo", title = "Undo (Ctrl+Z)"),
-              bp_action_button("redo", "Redo", "redo", title = "Redo (Ctrl+Y)"),
-              htmltools::tags$button(
-                type = "button",
-                class = "bp-command-button bp-focus-library",
-                htmltools::tagList(bp_icon("plus", 17), htmltools::tags$span("Add layer"))
-              )
+              bp_action_button("redo", "Redo", "redo", title = "Redo (Ctrl+Y)")
             )
+          ),
+          htmltools::tags$nav(
+            class = "bp-module-picker",
+            `aria-label` = "Add modules",
+            htmltools::tags$div(
+              class = "bp-module-picker-label",
+              bp_icon("plus", 16),
+              htmltools::tags$span("Add module")
+            ),
+            shiny::uiOutput("module_picker")
           ),
           shiny::uiOutput("assignment_editor"),
           shiny::uiOutput("layer_stack")

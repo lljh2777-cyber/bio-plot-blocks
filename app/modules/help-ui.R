@@ -3,7 +3,7 @@ bp_help_nav_entries <- function(language) {
     return(c(
       overview = "认识工作台",
       quickstart = "快速开始",
-      library = "函数库与模板",
+      library = "模块按钮与模板",
       layers = "图层栈",
       parameters = "参数与映射",
       preview = "预览与 R 代码",
@@ -15,7 +15,7 @@ bp_help_nav_entries <- function(language) {
   c(
     overview = "Workspace tour",
     quickstart = "Quick start",
-    library = "Library and templates",
+    library = "Module buttons and templates",
     layers = "Layer stack",
     parameters = "Parameters and mappings",
     preview = "Preview and R code",
@@ -158,8 +158,7 @@ bp_help_document_zh <- function() {
       "zh", "overview", "01", "认识工作台",
       "界面把模块、原生 R 参数、绘图结果和生成代码放在同一个可检查的工作区中。",
       bp_help_feature_grid(list(
-        list(title = "函数库", text = "搜索并筛选 ggplot2 函数，单击即可加入项目。"),
-        list(title = "图层栈", text = "查看 ggplot() 根模块以及按 + 连接的图层、标尺和主题。"),
+        list(title = "图层构建器", text = "模块分类按钮与图层栈位于同一区域；悬停或单击按钮即可添加函数。"),
         list(title = "参数检查器", text = "按 General、Advanced 或 All arguments 编辑所选模块的原生参数。"),
         list(title = "Preview", text = "在本地 R 中执行当前代码并显示真实 ggplot2 图形。"),
         list(title = "Generated R", text = "实时显示由模块状态生成的 R 代码，并与所选模块联动。"),
@@ -174,7 +173,7 @@ bp_help_document_zh <- function() {
       "zh", "quickstart", "02", "快速开始",
       "从内置火山图模板开始，通常几分钟即可完成第一次编辑和导出。",
       bp_help_steps(list(
-        list(title = "选择起点", text = "单击左下方 Volcano plot (DEGs) 模板，或从函数库依次添加 ggplot 与所需图层。"),
+        list(title = "选择起点", text = "打开 Templates 按钮并选择 Volcano plot (DEGs)，或从分类按钮依次添加 ggplot 与所需图层。"),
         list(title = "选择并编辑模块", text = "在图层栈中单击一个模块，然后在右侧设置映射、颜色、大小、透明度、标签或主题参数。"),
         list(title = "运行真实预览", text = "单击顶部 Run preview，等待 Preview 区域显示图形，并检查底部错误与警告。"),
         list(title = "保存或导出", text = "用 Save 保存可继续编辑的 JSON 项目；用 Export 或 Download .R 导出可运行的 R 脚本。")
@@ -182,11 +181,11 @@ bp_help_document_zh <- function() {
       bp_help_note("提示", "Assign plot 打开时，生成代码会赋值给指定对象（默认 p）；关闭后则只生成表达式。")
     ),
     bp_help_section(
-      "zh", "library", "03", "函数库与模板",
-      "函数库中的每一项对应一个真实 R 函数或 BioPlotBlocks 核心表达式。",
+      "zh", "library", "03", "模块按钮与模板",
+      "每个下拉选项对应一个真实 R 函数或 BioPlotBlocks 核心表达式。",
       bp_help_bullets(list(
-        htmltools::tagList(htmltools::tags$strong("搜索："), "在 Search functions 中输入函数名、标题、包名或摘要关键词。"),
-        htmltools::tagList(htmltools::tags$strong("筛选："), "All、Core、Geoms、Structure、Scales 和 Templates 可快速缩小范围。"),
+        htmltools::tagList(htmltools::tags$strong("打开："), "悬停或单击 All、Core、Geoms、Structure、Scales、Templates，即可展开对应选项。"),
+        htmltools::tagList(htmltools::tags$strong("搜索："), "打开 All 后，可按函数名、标题、包名或摘要关键词搜索。"),
         htmltools::tagList(htmltools::tags$strong("添加："), "单击函数行即可把模块加入图层栈；ggplot() 根模块始终位于最前方。"),
         htmltools::tagList(htmltools::tags$strong("状态："), "绿色检查表示 beta/已验证运行环境；警告三角表示 experimental，需要额外检查结果。"),
         htmltools::tagList(htmltools::tags$strong("模板："), "模板会展开为可见、可编辑的真实 ggplot2 模块，不会隐藏额外绘图逻辑。")
@@ -275,7 +274,7 @@ bp_help_document_zh <- function() {
           list(htmltools::tags$kbd("Ctrl / Cmd + Z"), "撤销。"),
           list(htmltools::tags$kbd("Ctrl / Cmd + Y"), "重做。"),
           list(htmltools::tags$kbd("Ctrl / Cmd + Shift + Z"), "重做。"),
-          list("拖动分隔线", "调整函数库、图层栈、检查器、预览或代码区域大小。"),
+          list("拖动分隔线", "调整图层构建器、检查器、预览或代码区域大小。"),
           list("分隔线 + 方向键", "每次微调 16 像素。"),
           list("双击分隔线", "恢复该分隔线的默认位置。"),
           list(htmltools::tags$kbd("Esc"), "关闭本手册并返回工作台。")
@@ -313,8 +312,7 @@ bp_help_document_en <- function() {
       "en", "overview", "01", "Workspace tour",
       "The workspace keeps modules, native R parameters, the rendered plot, and generated code visible in one inspectable surface.",
       bp_help_feature_grid(list(
-        list(title = "Function library", text = "Search and filter ggplot2 functions, then click to add one."),
-        list(title = "Layer stack", text = "Inspect the ggplot() root and the layers, scales, and themes joined with +."),
+        list(title = "Layer builder", text = "Module category buttons and the layer stack share one region; hover or click a button to add functions."),
         list(title = "Parameter inspector", text = "Edit native arguments through General, Advanced, or All arguments."),
         list(title = "Preview", text = "Execute the current code in local R and display the real ggplot2 result."),
         list(title = "Generated R", text = "See deterministic R code generated from module state and linked to selection."),
@@ -326,7 +324,7 @@ bp_help_document_en <- function() {
       "en", "quickstart", "02", "Quick start",
       "Start from the built-in volcano plot and complete a first edit and export in a few minutes.",
       bp_help_steps(list(
-        list(title = "Choose a starting point", text = "Click Volcano plot (DEGs), or add ggplot and the required layers from the function library."),
+        list(title = "Choose a starting point", text = "Open Templates and choose Volcano plot (DEGs), or add ggplot and the required layers from the category buttons."),
         list(title = "Select and edit a module", text = "Click a layer card, then set mappings, color, size, alpha, labels, or theme arguments in the inspector."),
         list(title = "Run a real preview", text = "Click Run preview, wait for the plot, and check the error and warning indicators in the status bar."),
         list(title = "Save or export", text = "Use Save for an editable JSON project; use Export or Download .R for a runnable R script.")
@@ -334,11 +332,11 @@ bp_help_document_en <- function() {
       bp_help_note("Tip", "When Assign plot is enabled, the generated code assigns the result to the chosen symbol (p by default). Disable it to emit only the expression.")
     ),
     bp_help_section(
-      "en", "library", "03", "Library and templates",
-      "Every library entry represents a real R function or a BioPlotBlocks core expression.",
+      "en", "library", "03", "Module buttons and templates",
+      "Every menu option represents a real R function or a BioPlotBlocks core expression.",
       bp_help_bullets(list(
-        htmltools::tagList(htmltools::tags$strong("Search: "), "Use a function name, title, package, or summary keyword."),
-        htmltools::tagList(htmltools::tags$strong("Filter: "), "Use All, Core, Geoms, Structure, Scales, or Templates."),
+        htmltools::tagList(htmltools::tags$strong("Open: "), "Hover or click All, Core, Geoms, Structure, Scales, or Templates to reveal its options."),
+        htmltools::tagList(htmltools::tags$strong("Search: "), "Open All, then use a function name, title, package, or summary keyword."),
         htmltools::tagList(htmltools::tags$strong("Add: "), "Click a row to append a module; the ggplot() root remains first."),
         htmltools::tagList(htmltools::tags$strong("Status: "), "A green check marks beta/verified runtime status; a warning triangle marks experimental support."),
         htmltools::tagList(htmltools::tags$strong("Templates: "), "A template expands into visible, editable ggplot2 modules without hidden plotting logic.")
@@ -427,7 +425,7 @@ bp_help_document_en <- function() {
           list(htmltools::tags$kbd("Ctrl / Cmd + Z"), "Undo."),
           list(htmltools::tags$kbd("Ctrl / Cmd + Y"), "Redo."),
           list(htmltools::tags$kbd("Ctrl / Cmd + Shift + Z"), "Redo."),
-          list("Drag a divider", "Resize the library, stack, inspector, preview, or code region."),
+          list("Drag a divider", "Resize the layer builder, inspector, preview, or code region."),
           list("Divider + arrow key", "Adjust by 16 pixels."),
           list("Double-click a divider", "Restore that divider to its default position."),
           list(htmltools::tags$kbd("Esc"), "Close this manual and return to the workspace.")

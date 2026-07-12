@@ -34,10 +34,13 @@ bp_status_icon <- function(status) {
 
 bp_library_row <- function(spec) {
   nested <- identical(spec$composition$required_context %||% spec$compatibility$required_context, "mapping_argument")
+  search_text <- tolower(paste(spec$symbol, spec$presentation$title, spec$presentation$summary, spec$package))
   htmltools::tags$button(
     type = "button",
+    role = "menuitem",
     class = paste("bp-library-row bp-add-module", if (nested) "bp-library-row-nested"),
     `data-module-id` = spec$id,
+    `data-search-text` = search_text,
     title = if (nested) "Use this nested module through a mapping argument" else paste("Add", spec$symbol),
     htmltools::tags$span(class = paste("bp-category-rail", paste0("bp-category-", bp_category_filter(spec$presentation$category)))),
     htmltools::tags$span(class = "bp-library-icon", bp_icon(spec$presentation$icon %||% "code", 17)),
@@ -54,8 +57,10 @@ bp_library_row <- function(spec) {
 bp_template_row <- function(template) {
   htmltools::tags$button(
     type = "button",
+    role = "menuitem",
     class = "bp-library-row bp-template-row bp-load-template",
     `data-template-id` = template$id,
+    `data-search-text` = tolower(paste(template$title, template$display_title %||% template$title, template$description, "ggplot2")),
     title = template$description,
     htmltools::tags$span(class = "bp-category-rail bp-category-templates"),
     htmltools::tags$span(class = "bp-library-icon", bp_icon("template", 18)),
@@ -66,6 +71,62 @@ bp_template_row <- function(template) {
     ),
     htmltools::tags$span(class = "bp-library-package", "ggplot2"),
     htmltools::tags$span(class = "bp-module-status bp-module-status-verified", bp_icon("check", 15))
+  )
+}
+
+bp_module_picker_group <- function(label, value, specs = list(), templates = list()) {
+  trigger_id <- paste0("bp-picker-trigger-", value)
+  menu_id <- paste0("bp-picker-menu-", value)
+  items <- if (identical(value, "templates")) templates else specs
+  option_label <- paste(length(items), if (length(items) == 1L) "option" else "options")
+
+  htmltools::tags$div(
+    class = "bp-picker-group",
+    `data-picker-group` = value,
+    htmltools::tags$button(
+      id = trigger_id,
+      type = "button",
+      class = paste("bp-picker-trigger", paste0("bp-picker-trigger-", value)),
+      `data-picker-target` = value,
+      `aria-controls` = menu_id,
+      `aria-expanded` = "false",
+      `aria-haspopup` = "menu",
+      htmltools::tags$span(class = paste("bp-picker-dot", paste0("bp-category-", value))),
+      htmltools::tags$span(label),
+      bp_icon("chevron_down", 13)
+    ),
+    htmltools::tags$div(
+      id = menu_id,
+      class = "bp-picker-menu",
+      role = "menu",
+      `aria-labelledby` = trigger_id,
+      hidden = "hidden",
+      htmltools::tags$div(
+        class = "bp-picker-menu-header",
+        htmltools::tags$div(
+          htmltools::tags$strong(if (identical(value, "all")) "All modules" else label),
+          htmltools::tags$span(option_label)
+        ),
+        if (identical(value, "all")) {
+          htmltools::tags$label(
+            class = "bp-picker-search",
+            htmltools::tags$span(class = "bp-search-icon", bp_icon("search", 15)),
+            htmltools::tags$input(
+              id = "module_search",
+              type = "search",
+              placeholder = "Search functions",
+              autocomplete = "off",
+              `aria-label` = "Search all modules"
+            )
+          )
+        }
+      ),
+      htmltools::tags$div(
+        class = "bp-library-list bp-picker-list",
+        if (identical(value, "templates")) lapply(templates, bp_template_row) else lapply(specs, bp_library_row),
+        htmltools::tags$div(class = "bp-picker-empty", hidden = "hidden", "No matching modules")
+      )
+    )
   )
 }
 
@@ -634,7 +695,6 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   state <- shiny::reactiveValues(
     project = initial,
     selected = selected_initial,
-    library_filter = "all",
     parameter_tab = "common",
     history = list(),
     future = list(),
@@ -1138,59 +1198,26 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     start_preview()
   }, ignoreInit = TRUE)
 
-  output$library_filters <- shiny::renderUI({
-    filters <- c(All = "all", Core = "core", Geoms = "geoms", Structure = "structure", Scales = "scales", Templates = "templates")
+  output$module_picker <- shiny::renderUI({
+    groups <- c(All = "all", Core = "core", Geoms = "geoms", Structure = "structure", Scales = "scales", Templates = "templates")
     htmltools::tags$div(
-      class = "bp-library-filters",
-      lapply(names(filters), function(label) {
-        value <- filters[[label]]
-        htmltools::tags$button(
-          type = "button",
-          class = paste("bp-filter-button", if (identical(state$library_filter, value)) "is-active"),
-          `data-filter` = value,
-          label
+      class = "bp-picker-groups",
+      lapply(names(groups), function(label) {
+        value <- groups[[label]]
+        specs <- if (identical(value, "all")) {
+          registry
+        } else if (identical(value, "templates")) {
+          list()
+        } else {
+          Filter(function(spec) identical(bp_category_filter(spec$presentation$category), value), registry)
+        }
+        bp_module_picker_group(
+          label,
+          value,
+          specs = specs,
+          templates = if (identical(value, "templates")) templates else list()
         )
       })
-    )
-  })
-
-  output$module_library <- shiny::renderUI({
-    query <- tolower(trimws(input$module_search %||% ""))
-    filter <- state$library_filter
-    specs <- registry
-    specs <- Filter(function(spec) {
-      category <- bp_category_filter(spec$presentation$category)
-      filter_ok <- filter %in% c("all", "templates") || identical(category, filter)
-      text <- tolower(paste(spec$symbol, spec$presentation$title, spec$presentation$summary, spec$package))
-      query_ok <- !nzchar(query) || grepl(query, text, fixed = TRUE)
-      filter_ok && query_ok && !identical(filter, "templates")
-    }, specs)
-    if (!length(specs)) {
-      return(htmltools::tags$div(class = "bp-library-empty", "No matching functions"))
-    }
-    htmltools::tags$div(
-      class = "bp-library-list",
-      tabindex = "0",
-      `aria-label` = "Scrollable function library",
-      lapply(specs, bp_library_row)
-    )
-  })
-
-  output$template_library <- shiny::renderUI({
-    filter <- state$library_filter
-    query <- tolower(trimws(input$module_search %||% ""))
-    visible <- Filter(function(template) {
-      filter %in% c("all", "templates") && (!nzchar(query) || grepl(query, tolower(paste(template$title, template$description)), fixed = TRUE))
-    }, templates)
-    if (!length(visible)) return(NULL)
-    htmltools::tagList(
-      htmltools::tags$div(class = "bp-library-heading bp-template-heading", "Templates"),
-      htmltools::tags$div(
-        class = "bp-library-list bp-template-list",
-        tabindex = "0",
-        `aria-label` = "Scrollable template library",
-        lapply(visible, bp_template_row)
-      )
     )
   })
 
@@ -1499,10 +1526,6 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       htmltools::tags$div(class = "bp-status-item bp-local-status", htmltools::tags$span(class = "bp-live-dot"), "Execution: Local R")
     )
   })
-
-  shiny::observeEvent(input$library_filter, {
-    state$library_filter <- input$library_filter$value %||% input$library_filter
-  }, ignoreInit = TRUE)
 
   shiny::observeEvent(input$parameter_tab, {
     state$parameter_tab <- input$parameter_tab$value %||% input$parameter_tab

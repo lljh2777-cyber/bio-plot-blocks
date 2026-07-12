@@ -8,8 +8,10 @@
   let dragPointerX = 0;
   let dragPointerY = 0;
   let activeResize = null;
-  let activeFilterScroll = null;
-  let suppressFilterClickUntil = 0;
+  let activePickerScroll = null;
+  let suppressPickerClickUntil = 0;
+  let pickerCloseTimer = null;
+  let pickerPositionFrame = null;
   let helpLastFocus = null;
   let helpLanguage = "zh";
   let helpScrollFrame = null;
@@ -26,7 +28,6 @@
   const projectStorageKey = "bioplotblocks.project.v0.2";
   const pendingInputTimers = new Map();
   const resizeConfig = {
-    library: { property: "--bp-library-width", selector: ".bp-library-panel", min: 220 },
     inspector: { property: "--bp-inspector-width", selector: ".bp-inspector-panel", min: 340 },
     preview: { property: "--bp-preview-width", selector: ".bp-preview-panel", min: 300 },
     workspace: { property: "--bp-workspace-height", selector: ".bp-workspace", min: 340 }
@@ -55,19 +56,15 @@
     const shell = document.querySelector(".bp-app-shell");
     if (!config || !workspace || !lower || !shell) return null;
 
-    if (target === "library" || target === "inspector") {
-      const library = document.querySelector(".bp-library-panel");
+    if (target === "inspector") {
       const inspector = document.querySelector(".bp-inspector-panel");
-      if (!library || !inspector) return null;
+      if (!inspector) return null;
       const handleSpace = Array.from(workspace.querySelectorAll(".bp-resize-vertical")).reduce(function (sum, handle) {
         return sum + handle.getBoundingClientRect().width;
       }, 0);
-      const fixedPanelWidth = target === "library"
-        ? inspector.getBoundingClientRect().width
-        : library.getBoundingClientRect().width;
       return {
         min: config.min,
-        max: Math.max(config.min, workspace.getBoundingClientRect().width - fixedPanelWidth - 420 - handleSpace)
+        max: Math.max(config.min, workspace.getBoundingClientRect().width - 520 - handleSpace)
       };
     }
 
@@ -112,6 +109,7 @@
       handle.setAttribute("aria-valuenow", String(value));
       handle.setAttribute("aria-valuetext", value + " pixels");
     });
+    positionOpenModulePickerMenus();
   }
 
   function setResizeValue(target, value) {
@@ -131,9 +129,7 @@
     const lowerRect = lower.getBoundingClientRect();
     const offset = Number.isFinite(grabOffset) ? grabOffset : 0;
 
-    if (target === "library") {
-      setResizeValue(target, clientX - workspaceRect.left - offset);
-    } else if (target === "inspector") {
+    if (target === "inspector") {
       setResizeValue(target, workspaceRect.right - clientX - offset);
     } else if (target === "preview") {
       setResizeValue(target, clientX - lowerRect.left - offset);
@@ -169,35 +165,118 @@
     refreshResizeHandles();
   }
 
-  function finishFilterScroll(pointerId) {
-    if (!activeFilterScroll || (pointerId != null && pointerId !== activeFilterScroll.pointerId)) return false;
-    activeFilterScroll.strip.classList.remove("is-dragging");
-    if (activeFilterScroll.moved) suppressFilterClickUntil = performance.now() + 100;
-    activeFilterScroll = null;
+  function finishPickerScroll(pointerId) {
+    if (!activePickerScroll || (pointerId != null && pointerId !== activePickerScroll.pointerId)) return false;
+    activePickerScroll.scroller.classList.remove("is-dragging");
+    if (activePickerScroll.moved) suppressPickerClickUntil = performance.now() + 140;
+    activePickerScroll = null;
     return true;
   }
 
-  function revealActiveLibraryFilter() {
-    const strip = document.querySelector(".bp-library-filters");
-    const active = strip ? strip.querySelector(".bp-filter-button.is-active") : null;
-    if (!strip || !active) return;
-    const stripRect = strip.getBoundingClientRect();
-    const activeRect = active.getBoundingClientRect();
-    const padding = 6;
-    if (activeRect.right > stripRect.right - padding) {
-      strip.scrollLeft += activeRect.right - stripRect.right + padding;
-    } else if (activeRect.left < stripRect.left + padding) {
-      strip.scrollLeft -= stripRect.left - activeRect.left + padding;
+  function ensurePickerTriggerVisible(group) {
+    if (!group) return;
+    const scroller = group.closest("#module_picker");
+    const trigger = group.querySelector(".bp-picker-trigger");
+    if (!scroller || !trigger || scroller.scrollWidth <= scroller.clientWidth) return;
+    const scrollerRect = scroller.getBoundingClientRect();
+    const triggerRect = trigger.getBoundingClientRect();
+    const padding = 5;
+    if (triggerRect.right > scrollerRect.right - padding) {
+      scroller.scrollLeft += triggerRect.right - scrollerRect.right + padding;
+    } else if (triggerRect.left < scrollerRect.left + padding) {
+      scroller.scrollLeft -= scrollerRect.left - triggerRect.left + padding;
     }
   }
 
-  function scheduleActiveLibraryFilter(value) {
-    [80, 200, 450, 800].forEach(function (delay) {
-      window.setTimeout(function () {
-        const active = document.querySelector(".bp-library-filters .bp-filter-button.is-active");
-        if (active && active.dataset.filter === value) revealActiveLibraryFilter();
-      }, delay);
+  function positionModulePickerMenu(group) {
+    if (!group) return;
+    const menu = group.querySelector(".bp-picker-menu");
+    const picker = document.querySelector(".bp-module-picker");
+    if (!menu || !picker) return;
+    if (window.innerWidth <= 760) {
+      menu.style.removeProperty("--bp-picker-menu-top");
+      menu.style.removeProperty("--bp-picker-menu-left");
+      menu.style.removeProperty("--bp-picker-menu-width");
+      return;
+    }
+    const pickerRect = picker.getBoundingClientRect();
+    const gutter = 18;
+    const width = Math.max(260, Math.min(390, pickerRect.width - gutter * 2));
+    const alignRight = ["structure", "scales", "templates"].includes(group.dataset.pickerGroup);
+    const left = alignRight ? pickerRect.right - gutter - width : pickerRect.left + gutter;
+    menu.style.setProperty("--bp-picker-menu-top", Math.round(pickerRect.bottom + 5) + "px");
+    menu.style.setProperty("--bp-picker-menu-left", Math.round(left) + "px");
+    menu.style.setProperty("--bp-picker-menu-width", Math.round(width) + "px");
+  }
+
+  function positionOpenModulePickerMenus() {
+    document.querySelectorAll(".bp-picker-group.is-open").forEach(positionModulePickerMenu);
+  }
+
+  function clearPickerCloseTimer() {
+    if (pickerCloseTimer == null) return;
+    window.clearTimeout(pickerCloseTimer);
+    pickerCloseTimer = null;
+  }
+
+  function closeModulePickers(except) {
+    clearPickerCloseTimer();
+    document.querySelectorAll(".bp-picker-group").forEach(function (group) {
+      if (group === except) return;
+      group.classList.remove("is-open", "is-pinned");
+      const trigger = group.querySelector(".bp-picker-trigger");
+      const menu = group.querySelector(".bp-picker-menu");
+      if (trigger) trigger.setAttribute("aria-expanded", "false");
+      if (menu) menu.hidden = true;
     });
+  }
+
+  function openModulePicker(group, pinned) {
+    if (!group) return;
+    clearPickerCloseTimer();
+    closeModulePickers(group);
+    ensurePickerTriggerVisible(group);
+    const trigger = group.querySelector(".bp-picker-trigger");
+    const menu = group.querySelector(".bp-picker-menu");
+    group.classList.add("is-open");
+    group.classList.toggle("is-pinned", Boolean(pinned));
+    if (trigger) trigger.setAttribute("aria-expanded", "true");
+    if (menu) {
+      positionModulePickerMenu(group);
+      menu.hidden = false;
+    }
+  }
+
+  function closeModulePickerGroup(group) {
+    if (!group) return;
+    group.classList.remove("is-open", "is-pinned");
+    const trigger = group.querySelector(".bp-picker-trigger");
+    const menu = group.querySelector(".bp-picker-menu");
+    if (trigger) trigger.setAttribute("aria-expanded", "false");
+    if (menu) menu.hidden = true;
+  }
+
+  function scheduleModulePickerClose(group) {
+    clearPickerCloseTimer();
+    if (!group || group.classList.contains("is-pinned")) return;
+    pickerCloseTimer = window.setTimeout(function () {
+      closeModulePickerGroup(group);
+      pickerCloseTimer = null;
+    }, 220);
+  }
+
+  function filterModulePicker(input) {
+    const group = closest(input, ".bp-picker-group");
+    if (!group) return;
+    const query = input.value.trim().toLowerCase();
+    let visibleCount = 0;
+    group.querySelectorAll(".bp-picker-list .bp-library-row").forEach(function (row) {
+      const matches = !query || (row.dataset.searchText || "").includes(query);
+      row.hidden = !matches;
+      if (matches) visibleCount += 1;
+    });
+    const empty = group.querySelector(".bp-picker-empty");
+    if (empty) empty.hidden = visibleCount > 0;
   }
 
   function reorderDraggedAtPoint(stack, clientY) {
@@ -807,26 +886,34 @@
       return;
     }
 
-    const filter = closest(event.target, ".bp-filter-button");
-    if (filter) {
-      if (performance.now() < suppressFilterClickUntil) {
-        event.preventDefault();
-        return;
+    if (closest(event.target, "#module_picker") && performance.now() < suppressPickerClickUntil) {
+      event.preventDefault();
+      return;
+    }
+
+    const pickerTrigger = closest(event.target, ".bp-picker-trigger");
+    if (pickerTrigger) {
+      const group = pickerTrigger.closest(".bp-picker-group");
+      const shouldClose = group && group.classList.contains("is-open") && group.classList.contains("is-pinned");
+      if (shouldClose) {
+        closeModulePickerGroup(group);
+      } else {
+        openModulePicker(group, true);
       }
-      sendInput("library_filter", { value: filter.dataset.filter });
-      scheduleActiveLibraryFilter(filter.dataset.filter);
       return;
     }
 
     const add = closest(event.target, ".bp-add-module");
     if (add) {
       sendInput("add_module", { module_id: add.dataset.moduleId });
+      closeModulePickers();
       return;
     }
 
     const template = closest(event.target, ".bp-load-template");
     if (template) {
       sendInput("load_template", { template_id: template.dataset.templateId });
+      closeModulePickers();
       return;
     }
 
@@ -903,20 +990,47 @@
       return;
     }
 
-    if (closest(event.target, ".bp-focus-library")) {
-      const input = document.getElementById("module_search");
-      if (input) {
-        input.focus();
-        input.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
-      return;
-    }
-
     if (closest(event.target, ".bp-close-inspector")) {
       const shell = document.querySelector(".bp-app-shell");
       if (shell) shell.classList.toggle("is-inspector-collapsed");
     }
   });
+
+  document.addEventListener("click", function (event) {
+    if (!closest(event.target, ".bp-picker-group")) closeModulePickers();
+  });
+
+  document.addEventListener("mouseover", function (event) {
+    const group = closest(event.target, ".bp-picker-group");
+    if (!group || (event.relatedTarget && group.contains(event.relatedTarget))) return;
+    openModulePicker(group, group.classList.contains("is-pinned"));
+  });
+
+  document.addEventListener("mouseout", function (event) {
+    const group = closest(event.target, ".bp-picker-group");
+    if (!group || (event.relatedTarget && group.contains(event.relatedTarget))) return;
+    scheduleModulePickerClose(group);
+  });
+
+  document.addEventListener("focusin", function (event) {
+    const group = closest(event.target, ".bp-picker-group");
+    if (group) openModulePicker(group, group.classList.contains("is-pinned"));
+  });
+
+  document.addEventListener("focusout", function (event) {
+    const group = closest(event.target, ".bp-picker-group");
+    if (!group || (event.relatedTarget && group.contains(event.relatedTarget))) return;
+    scheduleModulePickerClose(group);
+  });
+
+  document.addEventListener("keydown", function (event) {
+    const group = closest(event.target, ".bp-picker-group");
+    if (!group || event.key !== "Escape" || !group.classList.contains("is-open")) return;
+    event.preventDefault();
+    const trigger = group.querySelector(".bp-picker-trigger");
+    if (trigger) trigger.focus();
+    closeModulePickerGroup(group);
+  }, true);
 
   document.addEventListener("change", function (event) {
     const state = closest(event.target, ".bp-param-state");
@@ -967,6 +1081,12 @@
   });
 
   document.addEventListener("input", function (event) {
+    const moduleSearch = closest(event.target, "#module_search");
+    if (moduleSearch) {
+      filterModulePicker(moduleSearch);
+      return;
+    }
+
     const helpSearch = closest(event.target, "#bp-help-search-input");
     if (helpSearch) {
       filterHelp(helpSearch.value);
@@ -1071,15 +1191,30 @@
     reorderDraggedAtPoint(stack, dragPointerY || stack.getBoundingClientRect().top + stack.clientHeight / 2);
   }, { passive: false, capture: true });
 
+  document.addEventListener("wheel", function (event) {
+    if (event.defaultPrevented || closest(event.target, ".bp-picker-menu")) return;
+    const scroller = closest(event.target, "#module_picker");
+    if (!scroller || scroller.scrollWidth <= scroller.clientWidth) return;
+    const rawDelta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    if (!rawDelta) return;
+    const multiplier = event.deltaMode === 1 ? 24 : event.deltaMode === 2 ? scroller.clientWidth : 1;
+    const delta = rawDelta * multiplier;
+    const maximum = scroller.scrollWidth - scroller.clientWidth;
+    const canScroll = delta > 0 ? scroller.scrollLeft < maximum : scroller.scrollLeft > 0;
+    if (!canScroll) return;
+    event.preventDefault();
+    scroller.scrollLeft += delta;
+  }, { passive: false });
+
   document.addEventListener("pointerdown", function (event) {
-    const filterStrip = closest(event.target, ".bp-library-filters");
-    if (filterStrip) {
-      if ((event.pointerType !== "touch" && event.button !== 0) || filterStrip.scrollWidth <= filterStrip.clientWidth) return;
-      activeFilterScroll = {
-        strip: filterStrip,
+    const pickerScroller = closest(event.target, "#module_picker");
+    if (pickerScroller && !closest(event.target, ".bp-picker-menu") && pickerScroller.scrollWidth > pickerScroller.clientWidth) {
+      if (event.pointerType === "touch" || event.button !== 0) return;
+      activePickerScroll = {
+        scroller: pickerScroller,
         pointerId: event.pointerId,
         startX: event.clientX,
-        startScrollLeft: filterStrip.scrollLeft,
+        startScrollLeft: pickerScroller.scrollLeft,
         moved: false
       };
       return;
@@ -1104,18 +1239,19 @@
   });
 
   document.addEventListener("pointermove", function (event) {
-    if (activeFilterScroll && event.pointerId === activeFilterScroll.pointerId) {
-      const delta = event.clientX - activeFilterScroll.startX;
-      if (!activeFilterScroll.moved && Math.abs(delta) > 4) {
-        activeFilterScroll.moved = true;
-        activeFilterScroll.strip.classList.add("is-dragging");
-        if (typeof activeFilterScroll.strip.setPointerCapture === "function") {
-          activeFilterScroll.strip.setPointerCapture(event.pointerId);
+    if (activePickerScroll && event.pointerId === activePickerScroll.pointerId) {
+      const delta = event.clientX - activePickerScroll.startX;
+      if (!activePickerScroll.moved && Math.abs(delta) > 4) {
+        activePickerScroll.moved = true;
+        activePickerScroll.scroller.classList.add("is-dragging");
+        closeModulePickers();
+        if (typeof activePickerScroll.scroller.setPointerCapture === "function") {
+          activePickerScroll.scroller.setPointerCapture(event.pointerId);
         }
       }
-      if (activeFilterScroll.moved) {
+      if (activePickerScroll.moved) {
         event.preventDefault();
-        activeFilterScroll.strip.scrollLeft = activeFilterScroll.startScrollLeft - delta;
+        activePickerScroll.scroller.scrollLeft = activePickerScroll.startScrollLeft - delta;
       }
       return;
     }
@@ -1126,28 +1262,15 @@
   });
 
   document.addEventListener("pointerup", function (event) {
-    if (finishFilterScroll(event.pointerId)) return;
+    if (finishPickerScroll(event.pointerId)) return;
     if (!activeResize || event.pointerId !== activeResize.pointerId) return;
     finishResize();
   });
 
   document.addEventListener("pointercancel", function (event) {
-    finishFilterScroll(event.pointerId);
+    finishPickerScroll(event.pointerId);
     finishResize();
   });
-
-  document.addEventListener("wheel", function (event) {
-    if (event.defaultPrevented) return;
-    const filterStrip = closest(event.target, ".bp-library-filters");
-    if (!filterStrip || filterStrip.scrollWidth <= filterStrip.clientWidth) return;
-    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-    if (!delta) return;
-    const maximum = filterStrip.scrollWidth - filterStrip.clientWidth;
-    const canScroll = delta > 0 ? filterStrip.scrollLeft < maximum : filterStrip.scrollLeft > 0;
-    if (!canScroll) return;
-    event.preventDefault();
-    filterStrip.scrollLeft += delta;
-  }, { passive: false });
 
   document.addEventListener("dblclick", function (event) {
     const handle = closest(event.target, ".bp-resize-handle[data-resize-target]");
@@ -1167,6 +1290,15 @@
         return;
       }
       if (event.key === "Tab") trapHelpFocus(event);
+      return;
+    }
+
+    const pickerTrigger = closest(event.target, ".bp-picker-trigger");
+    if (pickerTrigger && event.key === "ArrowDown") {
+      event.preventDefault();
+      openModulePicker(pickerTrigger.closest(".bp-picker-group"), true);
+      const firstOption = pickerTrigger.closest(".bp-picker-group").querySelector(".bp-picker-list .bp-library-row:not([hidden])");
+      if (firstOption) firstOption.focus();
       return;
     }
 
@@ -1228,6 +1360,14 @@
     helpScrollFrame = window.requestAnimationFrame(function () {
       helpScrollFrame = null;
       updateHelpActiveNav();
+    });
+  }, true);
+
+  document.addEventListener("scroll", function () {
+    if (window.innerWidth <= 760 || pickerPositionFrame || !document.querySelector(".bp-picker-group.is-open")) return;
+    pickerPositionFrame = window.requestAnimationFrame(function () {
+      pickerPositionFrame = null;
+      positionOpenModulePickerMenus();
     });
   }, true);
 
