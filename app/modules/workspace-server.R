@@ -202,7 +202,7 @@ bp_value_control <- function(instance_id, name, argument, parameter) {
   )))
 }
 
-bp_aes_editor <- function(instance_id, name, argument) {
+bp_aes_editor <- function(instance_id, name, argument, column_suggestions = character()) {
   mapping <- argument$value
   mappings <- if (!is.null(mapping) && identical(bp_value_type(mapping), "RAesMapping")) mapping$mappings %||% list() else list()
   keys <- c("x", "y", "color", "fill", "shape", "group", "label")
@@ -217,21 +217,52 @@ bp_aes_editor <- function(instance_id, name, argument) {
     htmltools::tags$div(
       class = "bp-aes-grid",
       lapply(keys, function(key) {
+        list_id <- paste("bp-aes-columns", instance_id, name, key, sep = "-")
         htmltools::tags$label(
           class = "bp-aes-field",
           htmltools::tags$span(key),
-          htmltools::tags$input(
-            type = "text",
-            class = "bp-aes-value",
-            `data-instance-id` = instance_id,
-            `data-param` = name,
-            `data-aes-key` = key,
-            value = if (!is.null(mappings[[key]])) bp_value_to_source(mappings[[key]]) else "",
-            placeholder = "column or R expression",
-            spellcheck = "false"
+          htmltools::tags$div(
+            class = "bp-aes-hybrid-control",
+            htmltools::tags$input(
+              id = paste0(list_id, "-input"),
+              type = "text",
+              class = "bp-aes-value",
+              `data-instance-id` = instance_id,
+              `data-param` = name,
+              `data-aes-key` = key,
+              value = if (!is.null(mappings[[key]])) bp_value_to_source(mappings[[key]]) else "",
+              list = list_id,
+              placeholder = "column or R expression",
+              autocomplete = "off",
+              title = "Choose a data column or type a column name / R expression",
+              spellcheck = "false"
+            ),
+            htmltools::tags$button(
+              type = "button",
+              class = "bp-aes-suggestion-button",
+              `data-aes-input-id` = paste0(list_id, "-input"),
+              title = paste("Choose", key, "from data columns"),
+              `aria-label` = paste("Choose", key, "from data columns"),
+              bp_icon("chevron_down", 12)
+            ),
+            htmltools::tags$datalist(
+              id = list_id,
+              lapply(seq_along(column_suggestions), function(index) htmltools::tags$option(
+                value = unname(column_suggestions[[index]]),
+                label = names(column_suggestions)[[index]]
+              ))
+            )
           )
         )
-      })
+      }),
+      htmltools::tags$p(
+        class = "bp-aes-suggestion-hint",
+        if (length(column_suggestions)) {
+          paste0(length(column_suggestions), " columns available · choose a suggestion or type an R expression")
+        } else {
+          "Type a column name or R expression · column suggestions appear when data is available"
+        }
+      )
     )
   )
 }
@@ -265,7 +296,7 @@ bp_expression_editor <- function(instance_id, name, value) {
   )
 }
 
-bp_parameter_row <- function(instance, parameter, argument, effective_mapping, expression_edit) {
+bp_parameter_row <- function(instance, parameter, argument, effective_mapping, expression_edit, column_suggestions = character()) {
   name <- parameter$name
   state <- argument$state %||% "unset"
   mapping_key <- if (identical(name, "colour")) "color" else name
@@ -303,7 +334,7 @@ bp_parameter_row <- function(instance, parameter, argument, effective_mapping, e
   )
 
   details <- if (identical(parameter$ui_control, "aes_editor")) {
-    bp_aes_editor(instance$instance_id, name, argument)
+    bp_aes_editor(instance$instance_id, name, argument, column_suggestions)
   }
   editor <- if (!is.null(expression_edit) &&
       identical(expression_edit$instance_id, instance$instance_id) &&
@@ -385,19 +416,27 @@ bp_data_import_modal <- function() {
   )
 }
 
-bp_data_preview_table <- function(data, rows = 30L, columns = 12L) {
+bp_data_preview_table <- function(data, rows = 30L, columns = 12L, row_numbers = FALSE) {
   shown <- utils::head(data, rows)
   shown <- shown[, seq_len(min(ncol(shown), columns)), drop = FALSE]
+  header_cells <- lapply(names(shown), htmltools::tags$th)
+  if (isTRUE(row_numbers)) {
+    header_cells <- c(list(htmltools::tags$th(class = "bp-data-row-number", scope = "col", "#")), header_cells)
+  }
   htmltools::tags$div(
     class = "bp-data-preview-scroll",
     htmltools::tags$table(
       class = "bp-data-preview-table",
-      htmltools::tags$thead(htmltools::tags$tr(lapply(names(shown), htmltools::tags$th))),
+      htmltools::tags$thead(htmltools::tags$tr(header_cells)),
       htmltools::tags$tbody(lapply(seq_len(nrow(shown)), function(row) {
-        htmltools::tags$tr(lapply(shown[row, , drop = FALSE], function(value) {
+        cells <- lapply(shown[row, , drop = FALSE], function(value) {
           text <- if (length(value) == 0L || is.na(value[[1]])) "NA" else as.character(value[[1]])
           htmltools::tags$td(title = text, text)
-        }))
+        })
+        if (isTRUE(row_numbers)) {
+          cells <- c(list(htmltools::tags$th(class = "bp-data-row-number", scope = "row", row)), cells)
+        }
+        htmltools::tags$tr(cells)
       }))
     )
   )
@@ -473,7 +512,8 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     preview_image = NULL,
     preview_status_file = NULL,
     data_objects = list(),
-    data_import = NULL
+    data_import = NULL,
+    data_preview_source_id = "dataset_example"
   )
 
   commit <- function(project, selected = state$selected, record_history = TRUE) {
@@ -675,6 +715,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     )
     project <- bp_apply_dataset_mapping(state$project, source, mapping)
     state$data_objects[[source_id]] <- data
+    state$data_preview_source_id <- source_id
     root_index <- which(vapply(project$modules, function(module) identical(module$module_id, "r.ggplot2.ggplot"), logical(1)))[1]
     commit(project, project$modules[[root_index]]$instance_id)
     state$data_import <- NULL
@@ -800,6 +841,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     if (identical(tab, "common")) parameters <- Filter(function(x) identical(x$ui_group, "common"), parameters)
     if (identical(tab, "advanced")) parameters <- Filter(function(x) identical(x$ui_group, "advanced"), parameters)
     effective <- bp_effective_mapping(project, index)
+    column_suggestions <- bp_active_data_column_suggestions(project, state$data_objects)
     set_count <- sum(vapply(instance$arguments %||% list(), function(x) !bp_is_unset(x), logical(1)))
 
     constraints <- Filter(function(parameter) {
@@ -839,7 +881,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
         ),
         lapply(parameters, function(parameter) {
           argument <- instance$arguments[[parameter$name]] %||% bp_argument(origin = parameter$source)
-          bp_parameter_row(instance, parameter, argument, effective, state$expression_edit)
+          bp_parameter_row(instance, parameter, argument, effective, state$expression_edit, column_suggestions)
         })
       ),
       if (length(constraints)) htmltools::tags$div(
@@ -953,6 +995,74 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     htmltools::tags$div(class = "bp-preview-overlay", bp_icon("plot", 30), htmltools::tags$strong("Preview ready"), htmltools::tags$p("Run the current module stack with local R."))
   })
 
+  output$active_data_preview <- shiny::renderUI({
+    active_id <- state$project$active_data_source_id %||% "dataset_example"
+    sources <- state$project$data_sources %||% list()
+    if (!any(vapply(sources, function(source) identical(source$id, "dataset_example"), logical(1)))) {
+      sources <- c(list(bp_example_data_source()), sources)
+    }
+    source_ids <- vapply(sources, function(source) source$id %||% "", character(1))
+    selected_id <- state$data_preview_source_id %||% active_id
+    if (!selected_id %in% source_ids) selected_id <- if (active_id %in% source_ids) active_id else "dataset_example"
+    source <- sources[[match(selected_id, source_ids)]]
+    data <- if (isTRUE(source$example)) bp_default_environment()$df else state$data_objects[[selected_id]]
+    source_choices <- stats::setNames(source_ids, vapply(sources, function(item) {
+      if (isTRUE(item$example)) paste0(item$name %||% "df", " — Example data") else paste0(item$name %||% "data", " — ", item$original_file_name %||% "Imported data")
+    }, character(1)))
+
+    if (is.null(data) || !is.data.frame(data)) {
+      return(htmltools::tagList(
+        htmltools::tags$div(
+          class = "bp-workspace-data-summary",
+          htmltools::tags$div(
+            class = "bp-workspace-data-source-picker",
+            htmltools::tags$span("Preview dataset"),
+            shiny::selectInput("data_preview_source_id", label = NULL, choices = source_choices, selected = selected_id, selectize = FALSE)
+          ),
+          htmltools::tags$span("View only · plot mapping unchanged")
+        ),
+        htmltools::tags$div(
+          class = "bp-workspace-data-empty",
+          bp_icon("warning", 26),
+          htmltools::tags$strong("Data source needs to be linked"),
+          htmltools::tags$p(paste0(
+            "Import ", source$original_file_name %||% "the original data file",
+            " again to preview its rows. You can still select df — Example data above."
+          ))
+        )
+      ))
+    }
+
+    shown_rows <- min(30L, nrow(data))
+    htmltools::tagList(
+      htmltools::tags$div(
+        class = "bp-workspace-data-summary",
+        htmltools::tags$div(
+          class = "bp-workspace-data-source-picker",
+          htmltools::tags$span("Preview dataset"),
+          shiny::selectInput("data_preview_source_id", label = NULL, choices = source_choices, selected = selected_id, selectize = FALSE)
+        ),
+        htmltools::tags$div(
+          class = "bp-workspace-data-summary-meta",
+          htmltools::tags$span("View only · plot mapping unchanged"),
+          htmltools::tags$span(paste0(
+            "Showing ", format(shown_rows, big.mark = ","), " of ", format(nrow(data), big.mark = ","),
+            " rows · ", format(ncol(data), big.mark = ","), " columns"
+          ))
+        )
+      ),
+      bp_data_preview_table(data, rows = 30L, columns = ncol(data), row_numbers = TRUE)
+    )
+  })
+  shiny::outputOptions(output, "active_data_preview", suspendWhenHidden = FALSE)
+
+  shiny::observeEvent(input$data_preview_source_id, {
+    selected_id <- input$data_preview_source_id %||% ""
+    valid_ids <- c("dataset_example", vapply(state$project$data_sources %||% list(), function(source) source$id %||% "", character(1)))
+    current_id <- shiny::isolate(state$data_preview_source_id %||% "")
+    if (selected_id %in% valid_ids && !identical(selected_id, current_id)) state$data_preview_source_id <- selected_id
+  }, ignoreInit = TRUE)
+
   output$status_bar <- shiny::renderUI({
     diagnostics <- bp_project_diagnostics(state$project, registry)
     errors <- unique(c(
@@ -1011,6 +1121,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     selected <- if (length(project$modules) >= 2L) project$modules[[2]]$instance_id else project$modules[[1]]$instance_id
     commit(project, selected)
     state$data_objects <- list()
+    state$data_preview_source_id <- project$active_data_source_id %||% "dataset_example"
     shiny::updateTextInput(session, "project_name", value = project$name)
     start_preview()
   }, ignoreInit = TRUE)
@@ -1198,6 +1309,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     project <- bp_new_scatter_project(registry)
     commit(project, project$modules[[2]]$instance_id)
     state$data_objects <- list()
+    state$data_preview_source_id <- project$active_data_source_id %||% "dataset_example"
     shiny::updateTextInput(session, "project_name", value = project$name)
     state$expression_edit <- NULL
     state$preview_status <- "initial"
@@ -1224,6 +1336,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
 
     commit(restored$project, restored$selected, record_history = FALSE)
     state$data_objects <- list()
+    state$data_preview_source_id <- restored$project$active_data_source_id %||% "dataset_example"
     state$history <- list()
     state$future <- list()
     state$expression_edit <- NULL
@@ -1258,6 +1371,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     parsed <- bp_parse_code(input$import_source %||% "", registry)
     commit(parsed, if (length(parsed$modules)) parsed$modules[[1]]$instance_id else NULL)
     state$data_objects <- list()
+    state$data_preview_source_id <- parsed$active_data_source_id %||% "dataset_example"
     shiny::updateTextInput(session, "project_name", value = parsed$name)
     shiny::removeModal()
     if (identical(parsed$parse_support, "D")) {
@@ -1274,6 +1388,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     }
     commit(project, if (length(project$modules)) project$modules[[1]]$instance_id else NULL)
     state$data_objects <- list()
+    state$data_preview_source_id <- project$active_data_source_id %||% "dataset_example"
     shiny::updateTextInput(session, "project_name", value = project$name)
     shiny::showNotification("Project restored with versioned module state.", type = "message")
     relink <- Filter(function(source) identical(source$status, "relink_required"), project$data_sources %||% list())

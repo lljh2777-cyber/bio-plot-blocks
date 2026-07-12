@@ -9,6 +9,8 @@ test_that("workspace UI renders the full primary surface", {
   expect_match(html, "Generated R")
   expect_match(html, "Run preview")
   expect_match(html, "Import Data")
+  expect_match(html, "bp-preview-view-switch")
+  expect_match(html, "preview_data_view")
   expect_match(html, "open-help-button")
   expect_match(html, "使用手册")
   expect_match(html, "User manual")

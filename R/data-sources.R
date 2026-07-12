@@ -239,7 +239,7 @@ bp_convert_column <- function(column, target) {
 
 bp_symbol_source_name <- function(name) {
   if (grepl("^[.A-Za-z][.A-Za-z0-9_]*$", name) && !name %in% c("if", "else", "repeat", "while", "function", "for", "in", "next", "break", "TRUE", "FALSE", "NULL", "Inf", "NaN", "NA")) return(name)
-  paste(deparse(as.name(name), width.cutoff = 500L), collapse = "")
+  paste(deparse(as.name(name), width.cutoff = 500L, backtick = TRUE), collapse = "")
 }
 
 bp_apply_dataset_mapping <- function(project, source, mapping) {
@@ -275,6 +275,29 @@ bp_runtime_dataset_values <- function(project, data_objects) {
     if (!is.null(object) && nzchar(source$name %||% "")) values[[source$name]] <- object
   }
   values
+}
+
+bp_active_data_column_suggestions <- function(project, data_objects = list()) {
+  active_id <- project$active_data_source_id %||% "dataset_example"
+  sources <- Filter(function(source) identical(source$id, active_id), project$data_sources %||% list())
+  source <- if (length(sources)) sources[[1]] else if (identical(active_id, "dataset_example")) bp_example_data_source() else NULL
+  data <- data_objects[[active_id]]
+  if (is.null(data) && isTRUE(source$example)) data <- bp_default_environment()$df
+
+  if (is.data.frame(data)) {
+    column_names <- names(data)
+    column_types <- vapply(data, bp_column_type, character(1))
+  } else {
+    metadata <- source$column_metadata %||% list()
+    column_names <- vapply(metadata, function(column) column$name %||% "", character(1))
+    column_types <- vapply(metadata, function(column) column$recommended_type %||% column$detected_type %||% "column", character(1))
+  }
+  keep <- nzchar(column_names)
+  column_names <- column_names[keep]
+  column_types <- column_types[keep]
+  if (!length(column_names)) return(character())
+  values <- vapply(column_names, bp_symbol_source_name, character(1))
+  stats::setNames(values, paste0(column_names, " · ", column_types))
 }
 
 bp_mark_data_sources_for_relink <- function(project) {

@@ -1,3 +1,19 @@
+test_that("mapping editor combines column suggestions with manual input", {
+  source(file.path(root, "app", "modules", "workspace-server.R"), local = environment())
+  argument <- bp_argument("explicit", bp_aes_mapping(list(x = bp_symbol("log2FC"))), "formal")
+  editor <- bp_aes_editor(
+    "ggplot-test", "mapping", argument,
+    c("log2FC · numeric" = "log2FC", "Gene ID · character" = "`Gene ID`")
+  )
+  html <- htmltools::renderTags(editor)$html
+  expect_match(html, 'list="bp-aes-columns-ggplot-test-mapping-x"', fixed = TRUE)
+  expect_match(html, 'class="bp-aes-suggestion-button"', fixed = TRUE)
+  expect_match(html, 'data-aes-input-id="bp-aes-columns-ggplot-test-mapping-x-input"', fixed = TRUE)
+  expect_match(html, 'value="log2FC" label="log2FC · numeric"', fixed = TRUE)
+  expect_match(html, 'value="`Gene ID`" label="Gene ID · character"', fixed = TRUE)
+  expect_match(html, "choose a suggestion or type an R expression", fixed = TRUE)
+})
+
 test_that("Shiny import flow registers mapped CSV data", {
   skip_if_not_installed("shiny")
   source(file.path(root, "app", "modules", "workspace-server.R"), local = environment())
@@ -17,6 +33,9 @@ test_that("Shiny import flow registers mapped CSV data", {
     server,
     {
       state <- session$userData$bp_state
+      example_preview <- htmltools::renderTags(output$active_data_preview)$html
+      expect_match(example_preview, "GENE1", fixed = TRUE)
+      expect_match(example_preview, "Showing 30 of 420 rows", fixed = TRUE)
       session$setInputs(import_data = 1)
       session$setInputs(
         data_delimiter = "auto", data_encoding = "UTF-8", data_header = TRUE,
@@ -42,6 +61,16 @@ test_that("Shiny import flow registers mapped CSV data", {
       expect_identical(state$project$mapping_config$mapping$color, "group")
       expect_true(is.data.frame(state$data_objects[[state$project$active_data_source_id]]))
       expect_match(bp_generate_code(state$project, registry), "data = uploaded_results", fixed = TRUE)
+      imported_preview <- htmltools::renderTags(output$active_data_preview)$html
+      expect_match(imported_preview, "uploaded_results", fixed = TRUE)
+      expect_match(imported_preview, "g1", fixed = TRUE)
+      expect_match(imported_preview, "Showing 3 of 3 rows", fixed = TRUE)
+      session$setInputs(data_preview_source_id = "dataset_example")
+      session$flushReact()
+      example_after_import <- htmltools::renderTags(output$active_data_preview)$html
+      expect_match(example_after_import, "df — Example data", fixed = TRUE)
+      expect_match(example_after_import, "GENE1", fixed = TRUE)
+      expect_identical(state$project$data_reference$symbol, "uploaded_results")
       if (!is.null(state$preview_process) && state$preview_process$is_alive()) state$preview_process$kill()
     }
   )

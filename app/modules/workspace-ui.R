@@ -150,18 +150,42 @@ bp_workspace_ui <- function(root) {
             htmltools::tags$h2("Preview"),
             htmltools::tags$div(
               class = "bp-panel-actions",
+              htmltools::tags$div(
+                class = "bp-preview-view-switch",
+                role = "tablist",
+                `aria-label` = "Preview content",
+                htmltools::tags$button(
+                  type = "button", class = "bp-preview-view-button is-active", role = "tab",
+                  `aria-selected` = "true", `aria-controls` = "preview_plot_view",
+                  `data-preview-view` = "plot", "Plot"
+                ),
+                htmltools::tags$button(
+                  type = "button", class = "bp-preview-view-button", role = "tab",
+                  `aria-selected` = "false", `aria-controls` = "preview_data_view", tabindex = "-1",
+                  `data-preview-view` = "data", "Data"
+                )
+              ),
               shiny::actionButton(
                 "cancel_preview",
                 label = htmltools::tagList(bp_icon("close", 15), htmltools::tags$span("Cancel")),
-                class = "bp-command-button bp-cancel-preview"
+                class = "bp-command-button bp-cancel-preview bp-plot-preview-control"
               ),
-              htmltools::tags$span(class = "bp-preview-dimensions", "920 × 540 · 120 dpi")
+              htmltools::tags$span(class = "bp-preview-dimensions bp-plot-preview-control", "920 × 540 · 120 dpi")
             )
           ),
           htmltools::tags$div(
-            class = "bp-preview-canvas",
+            id = "preview_plot_view",
+            class = "bp-preview-canvas bp-preview-view",
+            role = "tabpanel",
             shiny::uiOutput("preview_image"),
             shiny::uiOutput("preview_overlay")
+          ),
+          htmltools::tags$div(
+            id = "preview_data_view",
+            class = "bp-workspace-data-preview bp-preview-view",
+            role = "tabpanel",
+            hidden = "hidden",
+            shiny::uiOutput("active_data_preview")
           )
         ),
         bp_resize_handle("vertical", "preview", "Resize preview and generated code"),

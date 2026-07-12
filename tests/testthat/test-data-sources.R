@@ -78,3 +78,18 @@ test_that("restored imported sources require explicit relinking", {
   expect_identical(restored$data_sources[[1]]$status, "relink_required")
   expect_true(restored$data_sources[[1]]$relink_required)
 })
+
+test_that("active data columns become code-safe mapping suggestions", {
+  project <- bp_create_project()
+  suggestions <- bp_active_data_column_suggestions(project)
+  expect_true(all(c("log2FC · numeric", "status · factor") %in% names(suggestions)))
+  expect_identical(unname(suggestions[["log2FC · numeric"]]), "log2FC")
+
+  project$data_sources <- list(list(
+    id = "dataset_custom", name = "custom", example = FALSE,
+    column_metadata = list(list(name = "Gene ID", recommended_type = "character"))
+  ))
+  project$active_data_source_id <- "dataset_custom"
+  suggestions <- bp_active_data_column_suggestions(project)
+  expect_identical(unname(suggestions[["Gene ID · character"]]), "`Gene ID`")
+})

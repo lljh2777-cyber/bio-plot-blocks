@@ -225,6 +225,7 @@ bp_help_document_zh <- function() {
         list(title = "Advanced", text = "较少使用但仍已建模的高级参数。"),
         list(title = "All arguments", text = "显示当前模块已声明的全部参数。"),
         list(title = "Mapped aesthetics", text = "aes() 内的变量映射，例如 color = status。"),
+        list(title = "列名建议", text = "x、y、color 等映射框可从当前数据列中选择，也可手动输入列名或 R 表达式。"),
         list(title = "Fixed values", text = "aes() 外的固定值，例如 color = \"red\"。"),
         list(title = "R expr", text = "打开表达式编辑器，适合函数调用、向量或其他原生 R 语法。")
       )),
@@ -235,6 +236,7 @@ bp_help_document_zh <- function() {
       "模块状态、生成代码和本地执行结果使用同一语义来源。",
       bp_help_bullets(list(
         htmltools::tagList(htmltools::tags$strong("Run preview："), "在独立本地 R 进程中执行当前项目并刷新图像。"),
+        htmltools::tagList(htmltools::tags$strong("图形 / 数据："), "使用预览区标题栏按钮切换图形和数据。数据视图可选择当前数据源或内置 df 示例，显示前 30 行并支持横向、纵向滚动；切换只影响查看，不修改绘图映射。"),
         htmltools::tagList(htmltools::tags$strong("Cancel："), "终止正在运行的预览，不改变模块或生成代码。"),
         htmltools::tagList(htmltools::tags$strong("Generated R："), "参数修改后自动更新；单击代码行可反向选择对应模块。"),
         htmltools::tagList(htmltools::tags$strong("Copy："), "把当前生成代码复制到剪贴板。"),
@@ -370,6 +372,7 @@ bp_help_document_en <- function() {
         list(title = "Advanced", text = "Less common but modeled advanced arguments."),
         list(title = "All arguments", text = "Every argument declared by the current module."),
         list(title = "Mapped aesthetics", text = "Variables inside aes(), such as color = status."),
+        list(title = "Column suggestions", text = "Mapping fields such as x, y, and color offer columns from the active data while still accepting typed column names or R expressions."),
         list(title = "Fixed values", text = "Constants outside aes(), such as color = \"red\"."),
         list(title = "R expr", text = "Open the expression editor for calls, vectors, or other native R syntax.")
       )),
@@ -380,6 +383,7 @@ bp_help_document_en <- function() {
       "Module state, generated code, and local execution share the same semantic source.",
       bp_help_bullets(list(
         htmltools::tagList(htmltools::tags$strong("Run preview: "), "Execute the project in a separate local R process and refresh the image."),
+        htmltools::tagList(htmltools::tags$strong("Plot / Data: "), "Switch between the plot and data. The data view can show the active source or the built-in df example, keeps plot mappings unchanged, and scrolls the first 30 rows in both directions."),
         htmltools::tagList(htmltools::tags$strong("Cancel: "), "Stop an active preview without changing modules or code."),
         htmltools::tagList(htmltools::tags$strong("Generated R: "), "Updates after argument changes; click a code line to select its module."),
         htmltools::tagList(htmltools::tags$strong("Copy: "), "Copy the current generated code to the clipboard."),

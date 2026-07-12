@@ -739,6 +739,24 @@
     done();
   }
 
+  function setPreviewView(view, focusButton) {
+    if (view !== "plot" && view !== "data") return;
+    document.querySelectorAll(".bp-preview-view-button[data-preview-view]").forEach(function (button) {
+      const active = button.dataset.previewView === view;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-selected", active ? "true" : "false");
+      button.tabIndex = active ? 0 : -1;
+      if (active && focusButton) button.focus();
+    });
+    const plot = document.getElementById("preview_plot_view");
+    const data = document.getElementById("preview_data_view");
+    if (plot) plot.hidden = view !== "plot";
+    if (data) data.hidden = view !== "data";
+    document.querySelectorAll(".bp-plot-preview-control").forEach(function (control) {
+      control.hidden = view !== "plot";
+    });
+  }
+
   document.addEventListener("click", function (event) {
     if (closest(event.target, "#open-help-button")) {
       openHelp();
@@ -813,6 +831,29 @@
 
     if (closest(event.target, "#copy-generated-code")) {
       copyGeneratedCode();
+      return;
+    }
+
+    const previewView = closest(event.target, ".bp-preview-view-button[data-preview-view]");
+    if (previewView) {
+      setPreviewView(previewView.dataset.previewView, false);
+      return;
+    }
+
+    const aesSuggestion = closest(event.target, ".bp-aes-suggestion-button[data-aes-input-id]");
+    if (aesSuggestion) {
+      const input = document.getElementById(aesSuggestion.dataset.aesInputId);
+      if (!input) return;
+      input.focus();
+      if (typeof input.showPicker === "function") {
+        try {
+          input.showPicker();
+        } catch (error) {
+          input.click();
+        }
+      } else {
+        input.click();
+      }
       return;
     }
 
@@ -1104,6 +1145,13 @@
       }
     }
 
+    const previewView = closest(event.target, ".bp-preview-view-button[data-preview-view]");
+    if (previewView && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      event.preventDefault();
+      setPreviewView(previewView.dataset.previewView === "plot" ? "data" : "plot", true);
+      return;
+    }
+
     const modifier = event.ctrlKey || event.metaKey;
     if (!modifier) return;
     const key = event.key.toLowerCase();
@@ -1145,6 +1193,7 @@
 
   function initializeInterface() {
     refreshResizeHandles();
+    setPreviewView("plot", false);
     setHelpLanguage("zh");
     initializeHelpNavigation();
     initializeTextInputContinuity();
