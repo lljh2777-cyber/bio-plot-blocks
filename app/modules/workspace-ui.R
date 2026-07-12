@@ -54,18 +54,22 @@ bp_visual_section_header <- function(number, title, description = NULL, action =
   )
 }
 
-bp_visual_chart_card <- function(title, subtitle, icon, active = FALSE, disabled = FALSE) {
-  htmltools::tags$button(
-    type = "button",
-    class = paste("bp-visual-chart-card", if (active) "is-active", if (disabled) "is-disabled"),
-    disabled = if (disabled) "disabled" else NULL,
-    `aria-pressed` = if (active) "true" else "false",
-    bp_icon(icon, 22),
-    htmltools::tags$span(
-      htmltools::tags$strong(title),
-      htmltools::tags$small(subtitle)
+bp_visual_chart_card <- function(id, chart_type, title, subtitle, icon, active = FALSE, disabled = FALSE) {
+  shiny::actionButton(
+    inputId = id,
+    label = htmltools::tagList(
+      bp_icon(icon, 22),
+      htmltools::tags$span(
+        htmltools::tags$strong(title),
+        htmltools::tags$small(subtitle)
+      ),
+      if (disabled) htmltools::tags$em("后续阶段") else bp_icon("check", 16)
     ),
-    if (disabled) htmltools::tags$em("后续阶段") else bp_icon("check", 16)
+    class = paste("bp-visual-chart-card", if (active) "is-active", if (disabled) "is-disabled"),
+    disabled = disabled,
+    `data-chart-type` = chart_type,
+    `aria-pressed` = if (active) "true" else "false",
+    `aria-label` = paste(title, subtitle)
   )
 }
 
@@ -170,11 +174,11 @@ bp_workspace_ui <- function(root) {
           htmltools::tags$div(
             class = "bp-visual-builder-heading",
             htmltools::tags$div(
-              htmltools::tags$span(class = "bp-visual-eyebrow", "SCATTER BUILDER · 散点图向导"),
-              htmltools::tags$h1("创建散点图"),
+              htmltools::tags$span(class = "bp-visual-eyebrow", "SCIENTIFIC PLOT BUILDER · 科研绘图向导"),
+              htmltools::tags$h1("创建科研图表"),
               htmltools::tags$p("按步骤选择数据和样式；所有改动会同步到同一个 R / ggplot2 项目。")
             ),
-            shiny::actionButton("visual_new_scatter", "新建散点图", icon = shiny::icon("plus"), class = "bp-command-button")
+            shiny::actionButton("visual_new_scatter", "新建图表", icon = shiny::icon("plus"), class = "bp-command-button")
           ),
           htmltools::tags$div(
             class = "bp-visual-builder-scroll",
@@ -188,28 +192,28 @@ bp_workspace_ui <- function(root) {
             htmltools::tags$section(
               id = "visual-section-chart",
               class = "bp-visual-config-section",
-              bp_visual_section_header("02", "选择图表类型", "第一阶段完整支持散点图；其他类型将在后续阶段接入同一配置层。"),
+              bp_visual_section_header("02", "选择图表类型", "当前支持散点图和火山图；其他类型将在后续阶段接入同一配置层。"),
               htmltools::tags$div(
                 class = "bp-visual-chart-grid",
-                bp_visual_chart_card("散点图", "比较两个连续变量", "point", active = TRUE),
-                bp_visual_chart_card("火山图", "差异表达结果", "plot", disabled = TRUE),
-                bp_visual_chart_card("箱线图", "比较组间分布", "boxplot", disabled = TRUE),
-                bp_visual_chart_card("PCA 图", "样本降维概览", "mapping", disabled = TRUE)
+                bp_visual_chart_card("visual_chart_scatter", "scatter", "散点图", "比较两个连续变量", "point", active = TRUE),
+                bp_visual_chart_card("visual_chart_volcano", "volcano", "火山图", "差异表达结果", "plot"),
+                bp_visual_chart_card("visual_chart_boxplot", "boxplot", "箱线图", "比较组间分布", "boxplot", disabled = TRUE),
+                bp_visual_chart_card("visual_chart_pca", "pca", "PCA 图", "样本降维概览", "mapping", disabled = TRUE)
               )
             ),
             htmltools::tags$section(
               id = "visual-section-fields",
               class = "bp-visual-config-section",
               bp_visual_section_header(
-                "03", "映射数据字段", "X 和 Y 为必选；颜色、大小和标签为可选。",
+                "03", "映射数据字段", "散点图需要 X/Y；火山图需要倍数变化和显著性字段。",
                 shiny::actionButton("visual_recommend_fields", "智能推荐", icon = shiny::icon("wand-magic-sparkles"), class = "bp-link-button")
               ),
               shiny::uiOutput("visual_field_recommendation"),
               htmltools::tags$div(
                 class = "bp-visual-field-grid",
-                shiny::selectizeInput("visual_x", "X 轴字段 *", choices = NULL, options = list(placeholder = "选择数值列"), width = "100%"),
-                shiny::selectizeInput("visual_y", "Y 轴字段 *", choices = NULL, options = list(placeholder = "选择数值列"), width = "100%"),
-                shiny::selectizeInput("visual_color", "颜色分组", choices = NULL, options = list(placeholder = "不映射颜色"), width = "100%"),
+                htmltools::tags$div(class = "bp-visual-field-control", `data-visual-field` = "x", shiny::selectizeInput("visual_x", "X 轴字段 *", choices = NULL, options = list(placeholder = "选择数值列"), width = "100%")),
+                htmltools::tags$div(class = "bp-visual-field-control", `data-visual-field` = "y", shiny::selectizeInput("visual_y", "Y 轴字段 *", choices = NULL, options = list(placeholder = "选择数值列"), width = "100%")),
+                htmltools::tags$div(class = "bp-visual-field-control", `data-visual-field` = "color", shiny::selectizeInput("visual_color", "颜色/状态分组", choices = NULL, options = list(placeholder = "不映射颜色"), width = "100%")),
                 shiny::selectizeInput("visual_size", "点大小映射", choices = NULL, options = list(placeholder = "固定大小"), width = "100%"),
                 shiny::selectizeInput("visual_label", "标签字段", choices = NULL, options = list(placeholder = "不显示标签"), width = "100%")
               ),
@@ -217,6 +221,16 @@ bp_workspace_ui <- function(root) {
                 class = "bp-visual-transform-grid",
                 shiny::selectInput("visual_x_scale", "X 值转换", choices = c("线性" = "linear", "log10" = "log10", "-log10" = "neg_log10"), width = "100%"),
                 shiny::selectInput("visual_y_scale", "Y 值转换", choices = c("线性" = "linear", "log10" = "log10", "-log10" = "neg_log10"), width = "100%")
+              ),
+              htmltools::tags$div(
+                class = "bp-visual-transform-grid bp-volcano-only",
+                hidden = "hidden",
+                shiny::numericInput("visual_fc_cutoff", "倍数变化阈值 |log2FC|", value = 1, min = 0, max = 1000, step = 0.1, width = "100%"),
+                shiny::numericInput("visual_p_cutoff", "显著性阈值", value = 0.05, min = 0.0000001, max = 1, step = 0.01, width = "100%"),
+                htmltools::tags$div(
+                  class = "bp-volcano-auto-status",
+                  shiny::checkboxInput("visual_auto_status", "未选择状态列时，自动创建 Up / NS / Down 分组", value = TRUE)
+                )
               )
             ),
             htmltools::tags$section(
@@ -230,7 +244,7 @@ bp_workspace_ui <- function(root) {
                 shiny::numericInput("visual_alpha", "透明度", value = 0.72, min = 0, max = 1, step = 0.05, width = "100%"),
                 shiny::selectInput("visual_shape", "点形状", choices = c("实心圆" = "16", "空心圆" = "1", "实心方形" = "15", "实心三角" = "17", "菱形" = "18"), width = "100%"),
                 shiny::selectInput("visual_palette", "分组调色板", choices = c("沿用项目 / 默认" = "default", "蓝–灰–红" = "blue_red", "Viridis 风格" = "viridis_like"), width = "100%"),
-                shiny::selectInput("visual_trend", "趋势线", choices = c("无" = "none", "线性拟合" = "linear", "平滑拟合" = "smooth"), width = "100%"),
+                htmltools::tags$div(class = "bp-scatter-only", shiny::selectInput("visual_trend", "趋势线", choices = c("无" = "none", "线性拟合" = "linear", "平滑拟合" = "smooth"), width = "100%")),
                 shiny::selectInput("visual_theme", "图表主题", choices = c("经典" = "classic", "简洁" = "minimal", "黑白" = "bw"), width = "100%"),
                 shiny::numericInput("visual_base_size", "基础字号", value = 12, min = 6, max = 40, step = 1, width = "100%")
               ),

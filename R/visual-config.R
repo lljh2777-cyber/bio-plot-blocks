@@ -27,6 +27,24 @@ bp_visual_scatter_defaults <- function(project = NULL) {
   )
 }
 
+bp_visual_volcano_defaults <- function(project = NULL) {
+  defaults <- bp_visual_scatter_defaults(project)
+  defaults$chart_type <- "volcano"
+  defaults$point_color <- "#AEB7C4"
+  defaults$point_size <- 1.8
+  defaults$alpha <- 0.75
+  defaults$palette <- "blue_red"
+  defaults$trend_line <- "none"
+  defaults$title <- "Volcano plot"
+  defaults$x_label <- "log2 Fold Change"
+  defaults$y_label <- "-log10 adjusted p-value"
+  defaults$legend_title <- "Regulation"
+  defaults$fold_change_cutoff <- 1
+  defaults$significance_cutoff <- 0.05
+  defaults$auto_status <- TRUE
+  defaults
+}
+
 bp_visual_scalar_character <- function(value, default = "") {
   if (is.null(value) || !length(value) || is.na(value[[1]])) return(default)
   as.character(value[[1]])
@@ -60,6 +78,17 @@ bp_normalize_visual_scatter_config <- function(config, project = NULL) {
   if (!config$y_scale %in% c("linear", "log10", "neg_log10")) config$y_scale <- defaults$y_scale
   config$chart_type <- "scatter"
   config$advanced_preserved <- isTRUE(config$advanced_preserved)
+  config
+}
+
+bp_normalize_visual_volcano_config <- function(config, project = NULL) {
+  defaults <- bp_visual_volcano_defaults(project)
+  config <- bp_normalize_visual_scatter_config(utils::modifyList(defaults, config %||% list(), keep.null = TRUE), project)
+  config$chart_type <- "volcano"
+  config$trend_line <- "none"
+  config$fold_change_cutoff <- bp_visual_scalar_number(config$fold_change_cutoff, defaults$fold_change_cutoff, 0, 1000)
+  config$significance_cutoff <- bp_visual_scalar_number(config$significance_cutoff, defaults$significance_cutoff, .Machine$double.eps, 1)
+  config$auto_status <- if (is.null(config$auto_status)) TRUE else isTRUE(config$auto_status)
   config
 }
 
@@ -128,6 +157,54 @@ bp_visual_recommend_scatter_fields <- function(source, data = NULL) {
     color_field = color,
     size_field = "",
     label_field = label
+  )
+}
+
+bp_visual_recommend_volcano_fields <- function(source, data = NULL) {
+  profile <- bp_visual_column_profile(source, data)
+  columns <- profile$name
+  empty <- list(
+    x_field = "", y_field = "", color_field = "", size_field = "",
+    label_field = "", status_field = "", x_scale = "linear", y_scale = "neg_log10", available = FALSE
+  )
+  if (!length(columns)) return(empty)
+  lower <- tolower(columns)
+  numeric <- tolower(profile$type) %in% c("numeric", "double", "integer", "number")
+  match_numeric <- function(candidates, pattern = NULL) {
+    indices <- match(tolower(candidates), lower, nomatch = 0L)
+    indices <- indices[indices > 0L]
+    indices <- indices[numeric[indices]]
+    if (!length(indices) && !is.null(pattern)) indices <- which(numeric & grepl(pattern, lower, perl = TRUE))
+    if (length(indices)) columns[[indices[[1]]]] else ""
+  }
+  match_any <- function(candidates) {
+    indices <- match(tolower(candidates), lower, nomatch = 0L)
+    indices <- indices[indices > 0L]
+    if (length(indices)) columns[[indices[[1]]]] else ""
+  }
+
+  x <- match_numeric(
+    c("log2FC", "logFC", "avg_log2FC", "log_fold_change", "fold_change", "effect", "estimate"),
+    "(^|[._])log2?fc$|fold[._]?change|effect[._]?size"
+  )
+  y <- match_numeric(
+    c("neg_log10_padj", "minus_log10_padj", "padj", "FDR", "qvalue", "adj.P.Val", "PValue", "pvalue", "p_val"),
+    "neg.*log.*p|minus.*log.*p|padj|fdr|q[._]?value|adj.*p|(^|[._])p[._]?val(ue)?$"
+  )
+  status <- match_any(c("status", "regulated", "regulation", "direction", "significance"))
+  label <- match_any(c("SYMBOL", "gene", "gene_name", "ENSEMBL", "feature", "id"))
+  y_lower <- tolower(y)
+  transformed <- nzchar(y) && grepl("neg.*log|minus.*log|-log|log10", y_lower, perl = TRUE)
+  list(
+    x_field = x,
+    y_field = y,
+    color_field = "",
+    size_field = "",
+    label_field = label,
+    status_field = status,
+    x_scale = "linear",
+    y_scale = if (transformed) "linear" else "neg_log10",
+    available = nzchar(x) && nzchar(y)
   )
 }
 
@@ -208,6 +285,7 @@ bp_visual_scatter_config_from_project <- function(project) {
   config <- bp_normalize_visual_scatter_config(stored, project)
   config$data_source_id <- project$active_data_source_id %||% config$data_source_id
   advanced <- FALSE
+  volcano_managed <- identical(project$visual_config$active_chart_type %||% "scatter", "volcano")
 
   root_index <- bp_visual_first_instance(project, "r.ggplot2.ggplot")
   if (!is.na(root_index)) {
@@ -233,7 +311,7 @@ bp_visual_scatter_config_from_project <- function(project) {
         detail <- bp_visual_mapping_field(value)
         if (is.null(value)) config[[paste0(name, "_field")]] <- ""
         else if (isTRUE(detail$supported) && identical(detail$scale, "linear")) config[[paste0(name, "_field")]] <- detail$field
-        else advanced <- TRUE
+        else if (!(isTRUE(volcano_managed) && identical(name, "color"))) advanced <- TRUE
       }
       if (length(setdiff(names(mappings), c("x", "y", "color", "colour", "size", "label")))) advanced <- TRUE
     } else if (!is.null(mapping)) advanced <- TRUE
@@ -333,6 +411,9 @@ bp_apply_visual_scatter_config <- function(project, config, registry = NULL) {
   registry <- registry %||% bp_load_registry()
   project <- unserialize(serialize(project, NULL))
   config <- bp_normalize_visual_scatter_config(config, project)
+  project$modules <- Filter(function(instance) {
+    !isTRUE(instance$visual_managed) || !instance$visual_role %in% c("volcano_fc_threshold", "volcano_significance_threshold")
+  }, project$modules %||% list())
   modules <- project$modules %||% list()
 
   root_index <- bp_visual_first_instance(project, "r.ggplot2.ggplot")
@@ -520,6 +601,7 @@ bp_apply_visual_scatter_config <- function(project, config, registry = NULL) {
   config$advanced_preserved <- bp_visual_scatter_config_from_project(project)$advanced_preserved
   project$visual_config <- project$visual_config %||% list()
   project$visual_config$scatter <- bp_normalize_visual_scatter_config(config, project)
+  project$visual_config$active_chart_type <- "scatter"
   list(project = project, root_instance_id = root$instance_id, config = project$visual_config$scatter)
 }
 
@@ -535,4 +617,222 @@ bp_validate_visual_scatter_config <- function(config, columns = character()) {
     }
   }
   list(valid = !length(errors), errors = unique(errors))
+}
+
+bp_visual_chart_type <- function(project) {
+  chart_type <- project$visual_config$active_chart_type %||% "scatter"
+  if (chart_type %in% c("scatter", "volcano")) chart_type else "scatter"
+}
+
+bp_visual_volcano_field_is_transformed <- function(field) {
+  nzchar(field %||% "") && grepl("neg.*log|minus.*log|-log|log10", tolower(field), perl = TRUE)
+}
+
+bp_visual_number_source <- function(value) {
+  format(as.numeric(value), digits = 15L, scientific = FALSE, trim = TRUE)
+}
+
+bp_visual_volcano_significance_source <- function(config) {
+  field <- bp_symbol_source_name(config$y_field)
+  cutoff <- bp_visual_number_source(config$significance_cutoff)
+  if (identical(config$y_scale, "linear") && bp_visual_volcano_field_is_transformed(config$y_field)) {
+    paste0(field, " >= -log10(", cutoff, ")")
+  } else {
+    paste0(field, " <= ", cutoff)
+  }
+}
+
+bp_visual_volcano_status_source <- function(config) {
+  x <- bp_symbol_source_name(config$x_field)
+  cutoff <- bp_visual_number_source(config$fold_change_cutoff)
+  significant <- bp_visual_volcano_significance_source(config)
+  paste0(
+    "ifelse(", x, " >= ", cutoff, " & ", significant, ", \"Up\", ",
+    "ifelse(", x, " <= -", cutoff, " & ", significant, ", \"Down\", \"NS\"))"
+  )
+}
+
+bp_visual_volcano_y_threshold_source <- function(config) {
+  cutoff <- bp_visual_number_source(config$significance_cutoff)
+  if (identical(config$y_scale, "neg_log10") ||
+      (identical(config$y_scale, "linear") && bp_visual_volcano_field_is_transformed(config$y_field))) {
+    return(paste0("-log10(", cutoff, ")"))
+  }
+  if (identical(config$y_scale, "log10")) return(paste0("log10(", cutoff, ")"))
+  cutoff
+}
+
+bp_visual_volcano_config_from_project <- function(project) {
+  stored <- bp_normalize_visual_volcano_config(project$visual_config$volcano %||% list(), project)
+  probe <- unserialize(serialize(project, NULL))
+  probe$visual_config <- probe$visual_config %||% list()
+  probe$visual_config$scatter <- stored
+  probe$visual_config$active_chart_type <- "volcano"
+  shared <- bp_visual_scatter_config_from_project(probe)
+  shared$chart_type <- "volcano"
+  shared$fold_change_cutoff <- stored$fold_change_cutoff
+  shared$significance_cutoff <- stored$significance_cutoff
+  shared$auto_status <- stored$auto_status
+  bp_normalize_visual_volcano_config(shared, project)
+}
+
+bp_visual_config_from_project <- function(project) {
+  if (identical(bp_visual_chart_type(project), "volcano")) {
+    bp_visual_volcano_config_from_project(project)
+  } else {
+    bp_visual_scatter_config_from_project(project)
+  }
+}
+
+bp_visual_prepare_volcano_template <- function(project) {
+  if (!identical(project$template_provenance$id %||% "", "bio.volcano.basic")) return(project)
+  project$modules <- lapply(project$modules %||% list(), function(instance) {
+    if (identical(instance$module_id, "r.ggplot2.geom_vline")) {
+      instance$visual_managed <- TRUE
+      instance$visual_role <- "volcano_fc_threshold"
+    } else if (identical(instance$module_id, "r.ggplot2.geom_hline")) {
+      instance$visual_managed <- TRUE
+      instance$visual_role <- "volcano_significance_threshold"
+    } else if (identical(instance$module_id, "r.ggplot2.scale_color_manual")) {
+      instance$visual_managed <- TRUE
+      instance$visual_palette <- "blue_red"
+    }
+    instance
+  })
+  project
+}
+
+bp_visual_upsert_volcano_threshold <- function(project, module_id, role, intercept_name, intercept_value, registry) {
+  indices <- which(vapply(project$modules %||% list(), function(instance) {
+    identical(instance$module_id, module_id) && identical(instance$visual_role %||% "", role)
+  }, logical(1)))
+  if (length(indices)) {
+    index <- indices[[length(indices)]]
+    layer <- project$modules[[index]]
+  } else {
+    layer <- bp_instantiate_module(module_id, registry)
+    project$modules[[length(project$modules) + 1L]] <- layer
+    index <- length(project$modules)
+  }
+  layer$visual_managed <- TRUE
+  layer$visual_role <- role
+  layer$arguments[[intercept_name]] <- bp_argument("raw_expression", bp_raw_expression(intercept_value), "formal")
+  layer$arguments$color <- bp_argument("explicit", bp_character("grey40"), "dots_aesthetic")
+  layer$arguments$linetype <- bp_argument("explicit", bp_character("dashed"), "dots_aesthetic")
+  layer$arguments$linewidth <- bp_argument("explicit", bp_double(0.6), "dots_aesthetic")
+  project$modules[[index]] <- layer
+  project
+}
+
+bp_apply_visual_volcano_config <- function(project, config, registry = NULL) {
+  registry <- registry %||% bp_load_registry()
+  project <- unserialize(serialize(project, NULL))
+  config <- bp_normalize_visual_volcano_config(config, project)
+  stored_scatter <- project$visual_config$scatter %||% bp_visual_scatter_defaults(project)
+  project <- bp_visual_prepare_volcano_template(project)
+
+  scatter_config <- config
+  scatter_config$chart_type <- "scatter"
+  scatter_config$trend_line <- "none"
+  scatter_result <- bp_apply_visual_scatter_config(project, scatter_config, registry)
+  project <- scatter_result$project
+  project$visual_config$scatter <- stored_scatter
+
+  root_index <- bp_visual_first_instance(project, "r.ggplot2.ggplot")
+  root <- project$modules[[root_index]]
+  mapping_argument <- root$arguments$mapping %||% bp_argument(origin = "formal")
+  mapping <- mapping_argument$value
+  if (is.null(mapping) || !identical(bp_value_type(mapping), "RAesMapping")) mapping <- bp_aes_mapping()
+  mappings <- mapping$mappings %||% list()
+  computed_status <- !nzchar(config$color_field) && isTRUE(config$auto_status) && nzchar(config$x_field) && nzchar(config$y_field)
+  if (computed_status) {
+    mappings$color <- bp_raw_expression(bp_visual_volcano_status_source(config))
+    point_index <- bp_visual_first_instance(project, "r.ggplot2.geom_point", managed_first = FALSE)
+    if (!is.na(point_index)) project$modules[[point_index]]$arguments$color$state <- "unset"
+  }
+  mapping_argument$state <- "explicit"
+  mapping_argument$value <- bp_aes_mapping(mappings)
+  root$arguments$mapping <- mapping_argument
+  project$modules[[root_index]] <- root
+
+  has_color_mapping <- nzchar(config$color_field) || computed_status
+  if (has_color_mapping && !nzchar(trimws(config$legend_title %||% ""))) {
+    config$legend_title <- if (computed_status) "Regulation" else config$color_field
+  }
+  labs_index <- bp_visual_first_instance(project, "r.ggplot2.labs")
+  if (!is.na(labs_index)) {
+    labels <- project$modules[[labs_index]]
+    labels <- bp_visual_set_text_argument(labels, "color", if (has_color_mapping) config$legend_title else "", "dots_documented")
+    project$modules[[labs_index]] <- labels
+  }
+
+  if (has_color_mapping) {
+    scale_indices <- which(vapply(project$modules, function(instance) {
+      identical(instance$module_id, "r.ggplot2.scale_color_manual") && isTRUE(instance$visual_managed)
+    }, logical(1)))
+    if (length(scale_indices)) {
+      scale_index <- scale_indices[[length(scale_indices)]]
+      scale <- project$modules[[scale_index]]
+    } else {
+      scale <- bp_instantiate_module("r.ggplot2.scale_color_manual", registry)
+      scale_index <- length(project$modules) + 1L
+    }
+    palette <- if (identical(config$palette, "default")) "blue_red" else config$palette
+    scale$arguments$values <- bp_argument("raw_expression", bp_raw_expression(bp_visual_palette_source(palette)), "formal")
+    scale$visual_managed <- TRUE
+    scale$visual_palette <- palette
+    project$modules[[scale_index]] <- scale
+  }
+
+  cutoff <- bp_visual_number_source(config$fold_change_cutoff)
+  project <- bp_visual_upsert_volcano_threshold(
+    project, "r.ggplot2.geom_vline", "volcano_fc_threshold", "xintercept",
+    paste0("c(-", cutoff, ", ", cutoff, ")"), registry
+  )
+  project <- bp_visual_upsert_volcano_threshold(
+    project, "r.ggplot2.geom_hline", "volcano_significance_threshold", "yintercept",
+    bp_visual_volcano_y_threshold_source(config), registry
+  )
+
+  root_index <- bp_visual_first_instance(project, "r.ggplot2.ggplot")
+  root <- project$modules[[root_index]]
+  project$mapping_config <- list(
+    dataset_id = project$active_data_source_id %||% config$data_source_id,
+    plot_id = root$instance_id,
+    mapping = bp_mapping_argument_sources(root$arguments$mapping),
+    confirmed_by_user = TRUE
+  )
+  project$visual_config <- project$visual_config %||% list()
+  project$visual_config$active_chart_type <- "volcano"
+  project$visual_config$volcano <- config
+  config <- bp_visual_volcano_config_from_project(project)
+  project$visual_config$volcano <- config
+  list(project = project, root_instance_id = root$instance_id, config = config)
+}
+
+bp_validate_visual_volcano_config <- function(config, columns = character()) {
+  config <- bp_normalize_visual_volcano_config(config)
+  validation <- bp_validate_visual_scatter_config(config, columns)
+  errors <- validation$errors
+  if (config$fold_change_cutoff < 0) errors <- c(errors, "倍数变化阈值不能小于 0。")
+  if (config$significance_cutoff <= 0 || config$significance_cutoff > 1) {
+    errors <- c(errors, "显著性阈值必须大于 0 且不超过 1。")
+  }
+  list(valid = !length(errors), errors = unique(errors))
+}
+
+bp_apply_visual_config <- function(project, config, registry = NULL) {
+  if (identical(config$chart_type %||% "scatter", "volcano")) {
+    bp_apply_visual_volcano_config(project, config, registry)
+  } else {
+    bp_apply_visual_scatter_config(project, config, registry)
+  }
+}
+
+bp_validate_visual_config <- function(config, columns = character()) {
+  if (identical(config$chart_type %||% "scatter", "volcano")) {
+    bp_validate_visual_volcano_config(config, columns)
+  } else {
+    bp_validate_visual_scatter_config(config, columns)
+  }
 }

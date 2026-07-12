@@ -33,7 +33,11 @@ bp_create_project <- function(name = "Untitled plot") {
     active_data_source_id = "dataset_example",
     mapping_config = list(dataset_id = "dataset_example", plot_id = NULL, mapping = list(), confirmed_by_user = TRUE),
     data_reference = list(strategy = "local_environment", source_id = "dataset_example", symbol = "df", embedded = FALSE),
-    visual_config = list(scatter = bp_visual_scatter_defaults()),
+    visual_config = list(
+      active_chart_type = "scatter",
+      scatter = bp_visual_scatter_defaults(),
+      volcano = bp_visual_volcano_defaults()
+    ),
     template_provenance = NULL,
     original_source = NULL,
     parse_support = "A",
@@ -83,7 +87,9 @@ bp_migrate_project <- function(project) {
     project$mapping_config <- project$mapping_config %||% list(dataset_id = project$active_data_source_id, plot_id = NULL, mapping = list(), confirmed_by_user = TRUE)
     project$data_reference$source_id <- project$data_reference$source_id %||% project$active_data_source_id
     project$visual_config <- project$visual_config %||% list(scatter = bp_visual_scatter_defaults(project))
+    project$visual_config$active_chart_type <- project$visual_config$active_chart_type %||% "scatter"
     project$visual_config$scatter <- project$visual_config$scatter %||% bp_visual_scatter_defaults(project)
+    project$visual_config$volcano <- project$visual_config$volcano %||% bp_visual_volcano_defaults(project)
     return(project)
   }
   if (identical(version, "0.1.0")) {
@@ -97,6 +103,9 @@ bp_migrate_project <- function(project) {
     project$mapping_config <- project$mapping_config %||% list(dataset_id = project$active_data_source_id, plot_id = NULL, mapping = list(), confirmed_by_user = TRUE)
     project$data_reference <- project$data_reference %||% list(strategy = "local_environment", source_id = project$active_data_source_id, symbol = "df", embedded = FALSE)
     project$visual_config <- project$visual_config %||% list(scatter = bp_visual_scatter_defaults(project))
+    project$visual_config$active_chart_type <- project$visual_config$active_chart_type %||% "scatter"
+    project$visual_config$scatter <- project$visual_config$scatter %||% bp_visual_scatter_defaults(project)
+    project$visual_config$volcano <- project$visual_config$volcano %||% bp_visual_volcano_defaults(project)
     return(project)
   }
   stop("Unsupported project schema version: ", version, call. = FALSE)

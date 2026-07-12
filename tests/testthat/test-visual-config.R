@@ -7,6 +7,66 @@ test_that("scatter recommendations use scientific column conventions", {
   expect_identical(recommendation$label_field, "gene")
 })
 
+test_that("volcano recommendations recognize fold-change and significance columns", {
+  source <- bp_example_data_source()
+  recommendation <- bp_visual_recommend_volcano_fields(source, bp_default_environment()$df)
+  expect_true(recommendation$available)
+  expect_identical(recommendation$x_field, "log2FC")
+  expect_identical(recommendation$y_field, "neg_log10_padj")
+  expect_identical(recommendation$y_scale, "linear")
+  expect_identical(recommendation$color_field, "")
+  expect_identical(recommendation$status_field, "status")
+  expect_identical(recommendation$label_field, "gene")
+})
+
+test_that("volcano config compiles thresholds and automatic regulation groups", {
+  project <- bp_basic_scatter_project(registry)
+  config <- bp_visual_volcano_defaults(project)
+  config$x_field <- "log2FC"
+  config$y_field <- "padj"
+  config$y_scale <- "neg_log10"
+  config$color_field <- ""
+  config$label_field <- ""
+  config$legend_title <- ""
+
+  result <- bp_apply_visual_volcano_config(project, config, registry)
+  code <- bp_generate_code(result$project, registry)
+  roles <- vapply(result$project$modules, function(instance) instance$visual_role %||% "", character(1))
+
+  expect_identical(result$project$visual_config$active_chart_type, "volcano")
+  expect_match(code, "y = -log10(padj)", fixed = TRUE)
+  expect_match(code, "color = ifelse(log2FC >= 1 & padj <= 0.05", fixed = TRUE)
+  expect_match(code, "geom_vline(xintercept = c(-1, 1)", fixed = TRUE)
+  expect_match(code, "geom_hline(yintercept = -log10(0.05)", fixed = TRUE)
+  expect_match(code, 'color = "Regulation"', fixed = TRUE)
+  expect_true("volcano_fc_threshold" %in% roles)
+  expect_true("volcano_significance_threshold" %in% roles)
+  expect_true(bp_execute_project(result$project, registry)$ok)
+})
+
+test_that("switching from volcano back to scatter removes managed threshold layers", {
+  project <- bp_basic_scatter_project(registry)
+  volcano <- bp_visual_volcano_defaults(project)
+  volcano$x_field <- "log2FC"
+  volcano$y_field <- "padj"
+  volcano$y_scale <- "neg_log10"
+  volcano$color_field <- ""
+  project <- bp_apply_visual_volcano_config(project, volcano, registry)$project
+
+  scatter <- bp_visual_scatter_defaults(project)
+  scatter$x_field <- "PC1"
+  scatter$y_field <- "PC2"
+  scatter$color_field <- "group"
+  result <- bp_apply_visual_scatter_config(project, scatter, registry)
+  code <- bp_generate_code(result$project, registry)
+  roles <- vapply(result$project$modules, function(instance) instance$visual_role %||% "", character(1))
+
+  expect_identical(result$project$visual_config$active_chart_type, "scatter")
+  expect_false(any(grepl("^volcano_", roles)))
+  expect_false(grepl("ifelse\\(", code))
+  expect_true(bp_execute_project(result$project, registry)$ok)
+})
+
 test_that("visual scatter settings compile through ordinary modules", {
   project <- bp_project_from_template("bio.volcano.basic", registry)
   config <- bp_visual_scatter_config_from_project(project)

@@ -164,8 +164,8 @@ bp_help_visual_mode_intro <- function(language) {
         text = if (chinese) "两个模式读写同一份语义化项目状态，切换模式不会复制或丢失图形设置。" else "Both modes read and write the same semantic project state, so switching never duplicates or discards plot settings."
       ),
       list(
-        title = if (chinese) "散点图向导" else "Scatter builder",
-        text = if (chinese) "第一阶段支持数据源、X/Y/颜色/大小/标签、点样式、调色板、趋势线、标题、坐标转换和主题。" else "Stage one supports data, X/Y/color/size/label mappings, point style, palettes, trend lines, labels, value transforms, and themes."
+        title = if (chinese) "散点图与火山图向导" else "Scatter and volcano builders",
+        text = if (chinese) "支持散点图常用映射和样式；火山图可识别 logFC 与 PValue/FDR 字段，配置倍数变化和显著性阈值，并生成 Up / NS / Down 分组。" else "Scatter plots support common mappings and styles. Volcano plots recognize logFC and PValue/FDR fields, expose fold-change and significance cutoffs, and generate Up / NS / Down groups."
       ),
       list(
         title = if (chinese) "自动预览" else "Automatic preview",

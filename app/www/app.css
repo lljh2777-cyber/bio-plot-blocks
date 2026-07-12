@@ -3633,13 +3633,16 @@ html.bp-interface-visual .bp-project-name-wrap {
   grid-template-columns: 28px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
+  width: 100%;
   min-height: 57px;
+  margin: 0;
   padding: 8px 10px;
   border: 1px solid var(--bp-border);
   border-radius: 7px;
   background: #ffffff;
   color: var(--bp-text-secondary);
   text-align: left;
+  cursor: pointer;
 }
 
 .bp-visual-chart-card.is-active {
@@ -3652,6 +3655,12 @@ html.bp-interface-visual .bp-project-name-wrap {
 .bp-visual-chart-card.is-disabled {
   background: #fafbfd;
   color: #9aa4b5;
+  cursor: not-allowed;
+}
+
+.bp-volcano-only[hidden],
+.bp-scatter-only[hidden] {
+  display: none !important;
 }
 
 .bp-visual-chart-card > span {
@@ -3700,6 +3709,21 @@ html.bp-interface-visual .bp-project-name-wrap {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 10px;
+}
+
+.bp-volcano-auto-status {
+  grid-column: 1 / -1;
+}
+
+.bp-volcano-auto-status .form-group,
+.bp-volcano-auto-status .checkbox {
+  margin-bottom: 0;
+}
+
+.bp-volcano-auto-status .checkbox label {
+  color: var(--bp-text-secondary);
+  font-size: 9.5px;
+  font-weight: 620;
 }
 
 .bp-visual-field-grid > .form-group:last-child {

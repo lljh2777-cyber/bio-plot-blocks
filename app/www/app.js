@@ -25,6 +25,7 @@
   let projectPersistenceObserver = null;
   let previewViewHandlerStarted = false;
   let parameterValueHandlerStarted = false;
+  let visualChartHandlerStarted = false;
   const projectStorageKey = "bioplotblocks.project.v0.2";
   const interfaceModeStorageKey = "bioplotblocks.interface-mode.v1";
   const pendingInputTimers = new Map();
@@ -86,6 +87,31 @@
     document.querySelectorAll(".bp-visual-step[data-visual-section]").forEach(function (button) {
       button.classList.toggle("is-active", button.dataset.visualSection === sectionId);
     });
+  }
+
+  function setVisualChartType(chartType) {
+    const next = chartType === "volcano" ? "volcano" : "scatter";
+    document.body.dataset.visualChartType = next;
+    document.querySelectorAll(".bp-visual-chart-card[data-chart-type]").forEach(function (button) {
+      const active = button.dataset.chartType === next;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+    document.querySelectorAll(".bp-volcano-only").forEach(function (element) {
+      element.hidden = next !== "volcano";
+    });
+    document.querySelectorAll(".bp-scatter-only").forEach(function (element) {
+      element.hidden = next !== "scatter";
+    });
+    const labels = next === "volcano"
+      ? { x: "倍数变化字段 *", y: "显著性字段 *", color: "已有状态分组（可选）" }
+      : { x: "X 轴字段 *", y: "Y 轴字段 *", color: "颜色/状态分组" };
+    Object.keys(labels).forEach(function (field) {
+      const label = document.querySelector('.bp-visual-field-control[data-visual-field="' + field + '"] label');
+      if (label) label.textContent = labels[field];
+    });
+    const eyebrow = document.querySelector(".bp-visual-builder-heading .bp-visual-eyebrow");
+    if (eyebrow) eyebrow.textContent = next === "volcano" ? "VOLCANO BUILDER · 火山图向导" : "SCATTER BUILDER · 散点图向导";
   }
 
   function updateVisualColorSwatch(input) {
@@ -922,11 +948,24 @@
     });
   }
 
+  function initializeVisualChartHandler() {
+    if (visualChartHandlerStarted || !window.Shiny || typeof window.Shiny.addCustomMessageHandler !== "function") return;
+    visualChartHandlerStarted = true;
+    window.Shiny.addCustomMessageHandler("bp_visual_chart_type", function (message) {
+      setVisualChartType(message && message.value === "volcano" ? "volcano" : "scatter");
+    });
+  }
+
   document.addEventListener("click", function (event) {
     const modeButton = closest(event.target, ".bp-mode-button[data-interface-mode]");
     if (modeButton) {
       setInterfaceMode(modeButton.dataset.interfaceMode, true, true);
       return;
+    }
+
+    const chartCard = closest(event.target, ".bp-visual-chart-card[data-chart-type]");
+    if (chartCard && !chartCard.disabled && !chartCard.classList.contains("is-disabled")) {
+      setVisualChartType(chartCard.dataset.chartType);
     }
 
     const visualStep = closest(event.target, ".bp-visual-step[data-visual-section]");
@@ -1457,6 +1496,7 @@
     setPreviewView("plot", false);
     initializePreviewViewHandler();
     initializeParameterValueHandler();
+    initializeVisualChartHandler();
     setHelpLanguage("zh");
     initializeHelpNavigation();
     initializeTextInputContinuity();
@@ -1477,6 +1517,7 @@
     refreshResizeHandles();
     initializePreviewViewHandler();
     initializeParameterValueHandler();
+    initializeVisualChartHandler();
     initializeProjectPersistence();
   });
 })();
