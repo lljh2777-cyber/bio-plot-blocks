@@ -70,6 +70,10 @@ test_that("Shiny import flow registers mapped CSV data", {
       example_preview <- htmltools::renderTags(output$active_data_preview)$html
       expect_match(example_preview, "GENE1", fixed = TRUE)
       expect_match(example_preview, "Showing 30 of 420 rows", fixed = TRUE)
+      visual_example_preview <- htmltools::renderTags(output$visual_active_data_preview)$html
+      expect_match(visual_example_preview, "显示前 30 行，共 420 行 · 11 列", fixed = TRUE)
+      expect_match(visual_example_preview, "GENE30", fixed = TRUE)
+      expect_true(all(vapply(names(bp_default_environment()$df), grepl, logical(1), x = visual_example_preview, fixed = TRUE)))
       session$setInputs(import_data = 1)
       session$setInputs(
         data_delimiter = "auto", data_encoding = "UTF-8", data_header = TRUE,
@@ -99,6 +103,10 @@ test_that("Shiny import flow registers mapped CSV data", {
       expect_match(imported_preview, "uploaded_results", fixed = TRUE)
       expect_match(imported_preview, "g1", fixed = TRUE)
       expect_match(imported_preview, "Showing 3 of 3 rows", fixed = TRUE)
+      visual_imported_preview <- htmltools::renderTags(output$visual_active_data_preview)$html
+      expect_match(visual_imported_preview, "显示前 3 行，共 3 行 · 4 列", fixed = TRUE)
+      expect_match(visual_imported_preview, "feature", fixed = TRUE)
+      expect_match(visual_imported_preview, "group", fixed = TRUE)
       session$setInputs(data_preview_source_id = "dataset_example")
       session$flushReact()
       example_after_import <- htmltools::renderTags(output$active_data_preview)$html

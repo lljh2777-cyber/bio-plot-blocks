@@ -6,6 +6,17 @@ test_that("real ggplot2 execution returns a plot", {
   expect_identical(result$versions$ggplot2, as.character(packageVersion("ggplot2")))
 })
 
+test_that("the blank advanced project contains only ggplot", {
+  project <- bp_ggplot_only_project(registry)
+  code <- bp_generate_code(project, registry)
+
+  expect_length(project$modules, 1L)
+  expect_identical(project$modules[[1]]$module_id, "r.ggplot2.ggplot")
+  expect_identical(project$mapping_config$plot_id, project$modules[[1]]$instance_id)
+  expect_match(code, "ggplot(data = df, mapping = aes(x = PC1, y = PC2))", fixed = TRUE)
+  expect_false(grepl(" + ", code, fixed = TRUE))
+})
+
 test_that("project JSON restores typed module state", {
   project <- bp_project_from_template("bio.volcano.basic", registry)
   path <- tempfile(fileext = ".json")

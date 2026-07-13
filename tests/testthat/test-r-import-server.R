@@ -50,10 +50,10 @@ test_that("Shiny registers multiple safe RData objects without changing the acti
     expect_identical(state$project$data_reference$symbol, deg_source$name)
     expect_identical(state$project$mapping_config$dataset_id, deg_source$id)
     expect_identical(state$data_preview_source_id, deg_source$id)
-    expect_identical(state$last_data_switch$preserved_count, 1L)
+    expect_identical(state$last_data_switch$preserved_count, 0L)
     expect_identical(state$last_data_switch$cleared_count, 2L)
     root_after_switch <- Filter(function(instance) identical(instance$module_id, "r.ggplot2.ggplot"), state$project$modules)[[1]]
-    expect_setequal(names(root_after_switch$arguments$mapping$value$mappings), "x")
+    expect_length(root_after_switch$arguments$mapping$value$mappings, 0L)
     inspector_after_switch <- htmltools::renderTags(output$parameter_inspector)$html
     expect_match(inspector_after_switch, 'value="gene" label="gene · character"', fixed = TRUE)
     expect_match(inspector_after_switch, 'value="padj" label="padj · numeric"', fixed = TRUE)

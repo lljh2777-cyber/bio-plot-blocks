@@ -8,7 +8,7 @@ bp_find_instance_index <- function(project, instance_id) {
 }
 
 bp_new_scatter_project <- function(registry) {
-  bp_basic_scatter_project(registry)
+  bp_ggplot_only_project(registry)
 }
 
 bp_category_filter <- function(category) {
@@ -690,7 +690,7 @@ bp_data_source_mapping_modal <- function(source, data, project) {
 }
 
 bp_workspace_server <- function(input, output, session, registry, templates, root) {
-  initial <- bp_project_from_template("bio.volcano.basic", registry)
+  initial <- bp_ggplot_only_project(registry)
   initial$visual_config <- initial$visual_config %||% list()
   initial$visual_config$active_chart_type <- "scatter"
   initial$visual_config$scatter <- bp_visual_scatter_config_from_project(initial)
@@ -699,7 +699,12 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     bp_visual_volcano_defaults(initial),
     initial_volcano_recommendation[c("x_field", "y_field", "color_field", "x_scale", "y_scale")]
   ), initial)
-  selected_initial <- initial$modules[[2]]$instance_id
+  initial_boxplot_recommendation <- bp_visual_recommend_boxplot_fields(bp_example_data_source(), bp_default_environment()$df)
+  initial$visual_config$boxplot <- bp_normalize_visual_boxplot_config(utils::modifyList(
+    bp_visual_boxplot_defaults(initial),
+    initial_boxplot_recommendation[c("x_field", "y_field", "color_field", "x_scale", "y_scale")]
+  ), initial)
+  selected_initial <- initial$modules[[1]]$instance_id
   state <- shiny::reactiveValues(
     project = initial,
     selected = selected_initial,
@@ -721,6 +726,8 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     last_data_switch = NULL,
     interface_mode = "visual",
     visual_syncing = FALSE,
+    visual_sync_generation = 0L,
+    visual_suppress_debounced = FALSE,
     visual_input_error = NULL,
     last_commit_origin = NULL
   )
@@ -845,9 +852,16 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     bp_visual_config_from_project(project)
   }
 
+  visual_label_signature <- function(config) {
+    fields <- c("title", "x_label", "y_label", "legend_title")
+    vapply(fields, function(field) bp_visual_scalar_character(config[[field]], ""), character(1))
+  }
+
   visual_normalize_config <- function(config, project = shiny::isolate(state$project)) {
     if (identical(config$chart_type %||% "scatter", "volcano")) {
       bp_normalize_visual_volcano_config(config, project)
+    } else if (identical(config$chart_type %||% "scatter", "boxplot")) {
+      bp_normalize_visual_boxplot_config(config, project)
     } else {
       bp_normalize_visual_scatter_config(config, project)
     }
@@ -884,6 +898,15 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       fold_change_cutoff = input$visual_fc_cutoff %||% current$fold_change_cutoff %||% 1,
       significance_cutoff = input$visual_p_cutoff %||% current$significance_cutoff %||% 0.05,
       auto_status = if (is.null(input$visual_auto_status)) isTRUE(current$auto_status %||% TRUE) else isTRUE(input$visual_auto_status),
+      box_border_color = input$visual_box_border_color %||% current$box_border_color %||% "#334155",
+      box_show_outliers = if (is.null(input$visual_box_show_outliers)) isTRUE(current$box_show_outliers %||% TRUE) else isTRUE(input$visual_box_show_outliers),
+      box_outlier_restore = isTRUE(current$box_outlier_restore %||% current$box_show_outliers %||% TRUE),
+      box_outlier_size = input$visual_box_outlier_size %||% current$box_outlier_size %||% 1.5,
+      box_jitter = if (is.null(input$visual_box_jitter)) isTRUE(current$box_jitter) else isTRUE(input$visual_box_jitter),
+      box_jitter_color = input$visual_box_jitter_color %||% current$box_jitter_color %||% "#334155",
+      box_jitter_size = input$visual_box_jitter_size %||% current$box_jitter_size %||% 1.4,
+      box_jitter_alpha = input$visual_box_jitter_alpha %||% current$box_jitter_alpha %||% 0.55,
+      box_jitter_width = input$visual_box_jitter_width %||% current$box_jitter_width %||% 0.16,
       advanced_preserved = isTRUE(current$advanced_preserved)
     )
   }
@@ -906,6 +929,12 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   sync_visual_inputs <- function(project = shiny::isolate(state$project), config = NULL) {
     config <- visual_normalize_config(config %||% bp_visual_config_from_project(project), project)
     state$visual_syncing <- TRUE
+    generation <- shiny::isolate(state$visual_sync_generation) + 1L
+    state$visual_sync_generation <- generation
+    state$visual_suppress_debounced <- TRUE
+    later::later(function() {
+      if (identical(shiny::isolate(state$visual_sync_generation), generation)) state$visual_suppress_debounced <- FALSE
+    }, 0.75)
     session$sendCustomMessage("bp_visual_chart_type", list(value = config$chart_type))
     sources <- project$data_sources %||% list(bp_example_data_source())
     source_values <- vapply(sources, function(source) source$id %||% "", character(1))
@@ -955,6 +984,14 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     shiny::updateNumericInput(session, "visual_fc_cutoff", value = config$fold_change_cutoff %||% 1)
     shiny::updateNumericInput(session, "visual_p_cutoff", value = config$significance_cutoff %||% 0.05)
     shiny::updateCheckboxInput(session, "visual_auto_status", value = isTRUE(config$auto_status %||% TRUE))
+    shiny::updateTextInput(session, "visual_box_border_color", value = config$box_border_color %||% "#334155")
+    shiny::updateCheckboxInput(session, "visual_box_show_outliers", value = isTRUE(config$box_show_outliers %||% TRUE))
+    shiny::updateNumericInput(session, "visual_box_outlier_size", value = config$box_outlier_size %||% 1.5)
+    shiny::updateCheckboxInput(session, "visual_box_jitter", value = isTRUE(config$box_jitter))
+    shiny::updateTextInput(session, "visual_box_jitter_color", value = config$box_jitter_color %||% "#334155")
+    shiny::updateNumericInput(session, "visual_box_jitter_size", value = config$box_jitter_size %||% 1.4)
+    shiny::updateNumericInput(session, "visual_box_jitter_alpha", value = config$box_jitter_alpha %||% 0.55)
+    shiny::updateNumericInput(session, "visual_box_jitter_width", value = config$box_jitter_width %||% 0.16)
     later::later(function() state$visual_syncing <- FALSE, 0.35)
     invisible(config)
   }
@@ -1031,6 +1068,34 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     )
   })
 
+  output$visual_active_data_preview <- shiny::renderUI({
+    source <- visual_source(state$project)
+    if (is.null(source)) {
+      return(htmltools::tags$div(class = "bp-visual-data-preview-empty", bp_icon("warning", 18), "当前项目没有可预览的数据源。"))
+    }
+    data <- if (isTRUE(source$example)) bp_default_environment()$df else state$data_objects[[source$id]]
+    if (is.null(data) || !is.data.frame(data)) {
+      return(htmltools::tags$div(
+        class = "bp-visual-data-preview-empty",
+        bp_icon("warning", 18),
+        htmltools::tags$span("该数据源需要重新导入或链接后才能预览。")
+      ))
+    }
+    shown_rows <- min(30L, nrow(data))
+    htmltools::tagList(
+      htmltools::tags$div(
+        class = "bp-visual-data-preview-meta",
+        htmltools::tags$strong(source$name %||% "data"),
+        htmltools::tags$span(paste0(
+          "显示前 ", format(shown_rows, big.mark = ","), " 行，共 ",
+          format(nrow(data), big.mark = ","), " 行 · ", format(ncol(data), big.mark = ","), " 列"
+        ))
+      ),
+      bp_data_preview_table(data, rows = 30L, columns = ncol(data), row_numbers = TRUE)
+    )
+  })
+  shiny::outputOptions(output, "visual_active_data_preview", suspendWhenHidden = FALSE)
+
   output$visual_field_recommendation <- shiny::renderUI({
     source <- visual_source(state$project)
     if (is.null(source)) return(NULL)
@@ -1038,6 +1103,8 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     chart_type <- bp_visual_chart_type(state$project)
     recommendation <- if (identical(chart_type, "volcano")) {
       bp_visual_recommend_volcano_fields(source, data)
+    } else if (identical(chart_type, "boxplot")) {
+      bp_visual_recommend_boxplot_fields(source, data)
     } else {
       bp_visual_recommend_scatter_fields(source, data)
     }
@@ -1046,6 +1113,12 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       paste0(
         "倍数变化 = ", recommendation$x_field, "，显著性 = ", recommendation$y_field,
         if (nzchar(recommendation$color_field)) paste0("，状态 = ", recommendation$color_field) else "，自动按阈值分组",
+        "。"
+      )
+    } else if (identical(chart_type, "boxplot")) {
+      paste0(
+        "分组 = ", recommendation$x_field, "，数值 = ", recommendation$y_field,
+        if (nzchar(recommendation$color_field)) paste0("，填充 = ", recommendation$color_field) else "",
         "。"
       )
     } else {
@@ -1784,16 +1857,49 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   shiny::outputOptions(output, "generated_code_transport", suspendWhenHidden = FALSE)
   shiny::outputOptions(output, "project_state_transport", suspendWhenHidden = FALSE)
 
+  repair_visual_boxplot_grouping <- function(record_history = TRUE) {
+    if (!identical(bp_visual_chart_type(state$project), "boxplot")) return(FALSE)
+    repaired <- bp_visual_remove_boxplot_group_mappings(state$project)
+    if (!isTRUE(repaired$changed)) return(FALSE)
+    config <- bp_visual_boxplot_config_from_project(repaired$project)
+    repaired$project$visual_config <- repaired$project$visual_config %||% list()
+    repaired$project$visual_config$active_chart_type <- "boxplot"
+    repaired$project$visual_config$boxplot <- config
+    root_index <- bp_visual_first_instance(repaired$project, "r.ggplot2.ggplot")
+    selected <- if (!is.na(root_index)) repaired$project$modules[[root_index]]$instance_id else state$selected
+    commit(
+      repaired$project, selected,
+      record_history = record_history,
+      origin = "visual_group_repair"
+    )
+    sync_visual_inputs(repaired$project, config)
+    if (isTRUE(input$visual_auto_preview)) start_preview()
+    TRUE
+  }
+
   shiny::observeEvent(state$project, {
     origin <- shiny::isolate(state$last_commit_origin)
     if (identical(origin, "visual_config")) return()
-    config <- bp_visual_config_from_project(state$project)
-    sync_visual_inputs(state$project, config)
+    if (identical(shiny::isolate(state$interface_mode), "visual") &&
+        isTRUE(repair_visual_boxplot_grouping(record_history = FALSE))) return()
+    project <- shiny::isolate(state$project)
+    config <- bp_visual_config_from_project(project)
+    repaired <- bp_visual_repair_cross_chart_labels(config, config$chart_type, project)
+    if (!identical(visual_label_signature(config), visual_label_signature(repaired))) {
+      result <- bp_apply_visual_config(project, repaired, registry)
+      commit(result$project, result$root_instance_id, record_history = FALSE, origin = "visual_repair")
+      sync_visual_inputs(result$project, result$config)
+      if (isTRUE(input$visual_auto_preview)) start_preview()
+      return()
+    }
+    sync_visual_inputs(project, config)
   }, ignoreInit = FALSE)
 
   shiny::observeEvent(input$interface_mode, {
-    state$interface_mode <- input$interface_mode$value %||% input$interface_mode %||% "visual"
-  }, ignoreInit = TRUE)
+    mode <- input$interface_mode$value %||% input$interface_mode %||% "visual"
+    state$interface_mode <- mode
+    if (identical(mode, "visual")) repair_visual_boxplot_grouping(record_history = TRUE)
+  }, ignoreInit = FALSE)
 
   shiny::observeEvent(input$visual_data_source, {
     if (isTRUE(state$visual_syncing)) return()
@@ -1827,6 +1933,8 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   visual_recommendation_for <- function(chart_type, source, data) {
     if (identical(chart_type, "volcano")) {
       bp_visual_recommend_volcano_fields(source, data)
+    } else if (identical(chart_type, "boxplot")) {
+      bp_visual_recommend_boxplot_fields(source, data)
     } else {
       bp_visual_recommend_scatter_fields(source, data)
     }
@@ -1842,7 +1950,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   }
 
   switch_visual_chart <- function(chart_type) {
-    chart_type <- if (identical(chart_type, "volcano")) "volcano" else "scatter"
+    chart_type <- if (chart_type %in% c("scatter", "volcano", "boxplot")) chart_type else "scatter"
     if (identical(bp_visual_chart_type(state$project), chart_type)) {
       sync_visual_inputs(state$project, bp_visual_config_from_project(state$project))
       return()
@@ -1851,11 +1959,13 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     if (is.null(source)) return()
     data <- if (isTRUE(source$example)) bp_default_environment()$df else state$data_objects[[source$id]]
     recommendation <- visual_recommendation_for(chart_type, source, data)
-    config <- state$project$visual_config[[chart_type]] %||% if (identical(chart_type, "volcano")) {
-      bp_visual_volcano_defaults(state$project)
-    } else {
+    config <- state$project$visual_config[[chart_type]] %||% switch(
+      chart_type,
+      volcano = bp_visual_volcano_defaults(state$project),
+      boxplot = bp_visual_boxplot_defaults(state$project),
       bp_visual_scatter_defaults(state$project)
-    }
+    )
+    config <- bp_visual_repair_cross_chart_labels(config, chart_type, state$project)
     config$chart_type <- chart_type
     config$data_source_id <- state$project$active_data_source_id %||% "dataset_example"
     columns <- bp_data_source_columns(source, data)
@@ -1865,8 +1975,8 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     }
     if (nzchar(config$color_field %||% "") && !config$color_field %in% columns) config$color_field <- recommendation$color_field %||% ""
     result <- bp_apply_visual_config(state$project, config, registry)
-    if (state$project$name %in% c("Untitled scatter plot", "Untitled volcano plot")) {
-      result$project$name <- if (identical(chart_type, "volcano")) "Untitled volcano plot" else "Untitled scatter plot"
+    if (state$project$name %in% c("Untitled scatter plot", "Untitled volcano plot", "Untitled boxplot")) {
+      result$project$name <- switch(chart_type, volcano = "Untitled volcano plot", boxplot = "Untitled boxplot", "Untitled scatter plot")
       shiny::updateTextInput(session, "project_name", value = result$project$name)
     }
     commit(result$project, result$root_instance_id, origin = "visual_source")
@@ -1874,7 +1984,12 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     validation <- bp_validate_visual_config(result$config, columns)
     if (!isTRUE(validation$valid)) {
       shiny::showNotification(
-        if (identical(chart_type, "volcano")) "已切换到火山图；请选择倍数变化和显著性字段。" else "已切换到散点图；请选择 X 和 Y 字段。",
+        switch(
+          chart_type,
+          volcano = "已切换到火山图；请选择倍数变化和显著性字段。",
+          boxplot = "已切换到箱线图；请选择分组字段和数值字段。",
+          "已切换到散点图；请选择 X 和 Y 字段。"
+        ),
         type = "warning", duration = 8
       )
     } else if (isTRUE(input$visual_auto_preview)) start_preview()
@@ -1882,6 +1997,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
 
   shiny::observeEvent(input$visual_chart_scatter, switch_visual_chart("scatter"), ignoreInit = TRUE)
   shiny::observeEvent(input$visual_chart_volcano, switch_visual_chart("volcano"), ignoreInit = TRUE)
+  shiny::observeEvent(input$visual_chart_boxplot, switch_visual_chart("boxplot"), ignoreInit = TRUE)
 
   shiny::observeEvent(input$visual_recommend_fields, {
     source <- visual_source(state$project)
@@ -1891,7 +2007,12 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     recommendation <- visual_recommendation_for(config$chart_type, source, data)
     if (!nzchar(recommendation$x_field) || !nzchar(recommendation$y_field)) {
       shiny::showNotification(
-        if (identical(config$chart_type, "volcano")) "未找到可识别的 logFC 与 PValue/FDR 数值列；仍可手动选择。" else "当前数据源中没有足够的数值列用于散点图。",
+        switch(
+          config$chart_type,
+          volcano = "未找到可识别的 logFC 与 PValue/FDR 数值列；仍可手动选择。",
+          boxplot = "未找到可用的分组字段与数值字段；仍可手动选择。",
+          "当前数据源中没有足够的数值列用于散点图。"
+        ),
         type = "warning"
       )
       return()
@@ -1909,10 +2030,15 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     project <- bp_new_scatter_project(registry)
     source <- bp_example_data_source()
     recommendation <- visual_recommendation_for(chart_type, source, bp_default_environment()$df)
-    config <- if (identical(chart_type, "volcano")) bp_visual_volcano_defaults(project) else bp_visual_scatter_config_from_project(project)
+    config <- switch(
+      chart_type,
+      volcano = bp_visual_volcano_defaults(project),
+      boxplot = bp_visual_boxplot_defaults(project),
+      bp_visual_scatter_config_from_project(project)
+    )
     config$chart_type <- chart_type
     config <- apply_visual_recommendation(config, recommendation)
-    config$title <- if (identical(chart_type, "volcano")) "Untitled volcano plot" else "Untitled scatter plot"
+    config$title <- switch(chart_type, volcano = "Untitled volcano plot", boxplot = "Untitled boxplot", "Untitled scatter plot")
     project$name <- config$title
     result <- bp_apply_visual_config(project, config, registry)
     commit(result$project, result$root_instance_id, origin = "visual_source")
@@ -1926,9 +2052,36 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     if (isTRUE(input$visual_auto_preview)) start_preview()
   }, ignoreInit = TRUE)
 
+  shiny::observeEvent(input$visual_box_jitter, {
+    if (isTRUE(state$visual_syncing)) return()
+    current <- visual_active_config(state$project)
+    if (!identical(current$chart_type %||% "scatter", "boxplot")) return()
+    requested <- isTRUE(input$visual_box_jitter)
+    if (identical(requested, isTRUE(current$box_jitter))) return()
+
+    config <- visual_config_from_inputs()
+    config$box_jitter <- requested
+    if (requested) {
+      config$box_outlier_restore <- isTRUE(current$box_show_outliers)
+      config$box_show_outliers <- FALSE
+    } else {
+      config$box_show_outliers <- isTRUE(current$box_outlier_restore)
+    }
+
+    result <- bp_apply_visual_config(state$project, config, registry)
+    commit(result$project, result$root_instance_id, origin = "visual_config")
+    sync_visual_inputs(result$project, result$config)
+    if (isTRUE(input$visual_auto_preview)) start_preview()
+  }, ignoreInit = TRUE, priority = 200)
+
   visual_config_reactive <- shiny::debounce(shiny::reactive(visual_config_from_inputs()), 480)
   shiny::observeEvent(visual_config_reactive(), {
+    if (!identical(state$interface_mode, "visual")) return()
     if (isTRUE(state$visual_syncing)) return()
+    if (isTRUE(state$visual_suppress_debounced)) {
+      state$visual_suppress_debounced <- FALSE
+      return()
+    }
     raw_config <- visual_config_reactive()
     if (!grepl("^#[0-9A-Fa-f]{6}$", trimws(raw_config$point_color %||% ""))) {
       state$visual_input_error <- "invalid_color"
@@ -1936,6 +2089,16 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     }
     if (!grepl("^#[0-9A-Fa-f]{6}$", trimws(raw_config$reference_line_color %||% ""))) {
       state$visual_input_error <- "invalid_reference_color"
+      return()
+    }
+    if (identical(raw_config$chart_type, "boxplot") &&
+        !grepl("^#[0-9A-Fa-f]{6}$", trimws(raw_config$box_border_color %||% ""))) {
+      state$visual_input_error <- "invalid_box_border_color"
+      return()
+    }
+    if (identical(raw_config$chart_type, "boxplot") && isTRUE(raw_config$box_jitter) &&
+        !grepl("^#[0-9A-Fa-f]{6}$", trimws(raw_config$box_jitter_color %||% ""))) {
+      state$visual_input_error <- "invalid_box_jitter_color"
       return()
     }
     vertical_lines <- bp_visual_parse_reference_values(raw_config$vertical_reference_lines)
@@ -2256,7 +2419,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
 
   shiny::observeEvent(input$new_project, {
     project <- bp_new_scatter_project(registry)
-    commit(project, project$modules[[2]]$instance_id)
+    commit(project, project$modules[[1]]$instance_id)
     state$data_objects <- list()
     state$data_preview_source_id <- project$active_data_source_id %||% "dataset_example"
     shiny::updateTextInput(session, "project_name", value = project$name)

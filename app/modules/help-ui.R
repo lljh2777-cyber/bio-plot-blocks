@@ -160,12 +160,16 @@ bp_help_visual_mode_intro <- function(language) {
     },
     bp_help_feature_grid(list(
       list(
+        title = if (chinese) "箱线图抖动散点" else "Boxplot jitter points",
+        text = if (chinese) "箱线图可按需叠加 geom_jitter 原始观测点，并设置点颜色、大小、透明度与横向抖动宽度。开启时会自动隐藏箱线图离群点以避免重复；用户仍可重新开启并查看重叠提示，关闭抖动点后恢复此前设置。" else "Boxplots can overlay raw observations with geom_jitter and configure point color, size, opacity, and horizontal jitter width. Enabling jitter hides boxplot outliers to avoid duplicates; users may re-enable them with an overlap warning, and disabling jitter restores the previous setting."
+      ),
+      list(
         title = if (chinese) "共享同一项目" else "One shared project",
         text = if (chinese) "两个模式读写同一份语义化项目状态，切换模式不会复制或丢失图形设置。" else "Both modes read and write the same semantic project state, so switching never duplicates or discards plot settings."
       ),
       list(
-        title = if (chinese) "散点图与火山图向导" else "Scatter and volcano builders",
-        text = if (chinese) "支持散点图常用映射和样式；火山图可识别 logFC 与 PValue/FDR 字段，配置倍数变化和显著性阈值，并生成 Up / NS / Down 分组。" else "Scatter plots support common mappings and styles. Volcano plots recognize logFC and PValue/FDR fields, expose fold-change and significance cutoffs, and generate Up / NS / Down groups."
+        title = if (chinese) "散点图、火山图与箱线图向导" else "Scatter, volcano, and boxplot builders",
+        text = if (chinese) "支持散点图常用映射和样式；火山图可识别 logFC 与 PValue/FDR 字段并生成 Up / NS / Down 分组；箱线图使用分组字段和数值字段比较组间分布，并支持填充、边框和离群点设置。" else "Scatter plots support common mappings and styles. Volcano plots recognize logFC and PValue/FDR fields and generate Up / NS / Down groups. Boxplots compare grouped numeric distributions with fill, border, and outlier controls."
       ),
       list(
         title = if (chinese) "自动预览" else "Automatic preview",

@@ -19,6 +19,26 @@ bp_basic_scatter_project <- function(registry = NULL) {
   project
 }
 
+bp_ggplot_only_project <- function(registry = NULL) {
+  registry <- registry %||% bp_load_registry()
+  project <- bp_create_project("Untitled plot")
+  base <- bp_instantiate_module("r.ggplot2.ggplot", registry)
+  base$arguments$data <- bp_argument("explicit", bp_symbol("df"), "formal")
+  base$arguments$mapping <- bp_argument(
+    "explicit",
+    bp_aes_mapping(list(x = bp_symbol("PC1"), y = bp_symbol("PC2"))),
+    "formal"
+  )
+  project$modules <- list(base)
+  project$mapping_config <- list(
+    dataset_id = "dataset_example",
+    plot_id = base$instance_id,
+    mapping = list(x = "PC1", y = "PC2"),
+    confirmed_by_user = TRUE
+  )
+  project
+}
+
 #' Load a BioPlotBlocks template definition
 #'
 #' @param template_id Template identifier or path to a template JSON file.

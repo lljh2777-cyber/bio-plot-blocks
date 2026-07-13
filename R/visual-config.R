@@ -49,6 +49,58 @@ bp_visual_volcano_defaults <- function(project = NULL) {
   defaults
 }
 
+bp_visual_boxplot_defaults <- function(project = NULL) {
+  defaults <- bp_visual_scatter_defaults(project)
+  defaults$chart_type <- "boxplot"
+  defaults$point_color <- "#7DB3D7"
+  defaults$point_size <- 0.65
+  defaults$alpha <- 0.85
+  defaults$palette <- "default"
+  defaults$trend_line <- "none"
+  defaults$title <- "Boxplot"
+  defaults$x_label <- "Group"
+  defaults$y_label <- "Value"
+  defaults$legend_title <- "Group"
+  defaults$box_border_color <- "#334155"
+  defaults$box_show_outliers <- TRUE
+  defaults$box_outlier_restore <- TRUE
+  defaults$box_outlier_size <- 1.5
+  defaults$box_jitter <- FALSE
+  defaults$box_jitter_color <- "#334155"
+  defaults$box_jitter_size <- 1.4
+  defaults$box_jitter_alpha <- 0.55
+  defaults$box_jitter_width <- 0.16
+  defaults
+}
+
+bp_visual_chart_defaults <- function(chart_type, project = NULL) {
+  switch(
+    chart_type,
+    volcano = bp_visual_volcano_defaults(project),
+    boxplot = bp_visual_boxplot_defaults(project),
+    bp_visual_scatter_defaults(project)
+  )
+}
+
+bp_visual_repair_cross_chart_labels <- function(config, chart_type, project = NULL) {
+  chart_type <- if (chart_type %in% c("scatter", "volcano", "boxplot")) chart_type else "scatter"
+  config <- config %||% bp_visual_chart_defaults(chart_type, project)
+  fields <- c("title", "x_label", "y_label", "legend_title")
+  signature <- function(value) {
+    vapply(fields, function(field) bp_visual_scalar_character(value[[field]], ""), character(1))
+  }
+  current <- signature(config)
+  other_types <- setdiff(c("scatter", "volcano", "boxplot"), chart_type)
+  inherited <- any(vapply(other_types, function(other_type) {
+    other <- signature(bp_visual_chart_defaults(other_type, project))
+    any(nzchar(other)) && identical(current, other)
+  }, logical(1)))
+  if (!inherited) return(config)
+  defaults <- bp_visual_chart_defaults(chart_type, project)
+  for (field in fields) config[[field]] <- defaults[[field]]
+  config
+}
+
 bp_visual_scalar_character <- function(value, default = "") {
   if (is.null(value) || !length(value) || is.na(value[[1]])) return(default)
   as.character(value[[1]])
@@ -112,6 +164,33 @@ bp_normalize_visual_volcano_config <- function(config, project = NULL) {
   config$fold_change_cutoff <- bp_visual_scalar_number(config$fold_change_cutoff, defaults$fold_change_cutoff, 0, 1000)
   config$significance_cutoff <- bp_visual_scalar_number(config$significance_cutoff, defaults$significance_cutoff, .Machine$double.eps, 1)
   config$auto_status <- if (is.null(config$auto_status)) TRUE else isTRUE(config$auto_status)
+  config
+}
+
+bp_normalize_visual_boxplot_config <- function(config, project = NULL) {
+  defaults <- bp_visual_boxplot_defaults(project)
+  config <- bp_normalize_visual_scatter_config(utils::modifyList(defaults, config %||% list(), keep.null = TRUE), project)
+  config$chart_type <- "boxplot"
+  config$x_scale <- "linear"
+  config$size_field <- ""
+  config$label_field <- ""
+  config$trend_line <- "none"
+  config$point_size <- bp_visual_scalar_number(config$point_size, defaults$point_size, 0.1, 2)
+  config$box_border_color <- bp_visual_scalar_character(config$box_border_color, defaults$box_border_color)
+  if (!grepl("^#[0-9A-Fa-f]{6}$", config$box_border_color)) config$box_border_color <- defaults$box_border_color
+  config$box_show_outliers <- if (is.null(config$box_show_outliers)) TRUE else isTRUE(config$box_show_outliers)
+  config$box_outlier_restore <- if (is.null(config$box_outlier_restore)) {
+    config$box_show_outliers
+  } else {
+    isTRUE(config$box_outlier_restore)
+  }
+  config$box_outlier_size <- bp_visual_scalar_number(config$box_outlier_size, defaults$box_outlier_size, 0.1, 10)
+  config$box_jitter <- isTRUE(config$box_jitter)
+  config$box_jitter_color <- bp_visual_scalar_character(config$box_jitter_color, defaults$box_jitter_color)
+  if (!grepl("^#[0-9A-Fa-f]{6}$", config$box_jitter_color)) config$box_jitter_color <- defaults$box_jitter_color
+  config$box_jitter_size <- bp_visual_scalar_number(config$box_jitter_size, defaults$box_jitter_size, 0.1, 10)
+  config$box_jitter_alpha <- bp_visual_scalar_number(config$box_jitter_alpha, defaults$box_jitter_alpha, 0, 1)
+  config$box_jitter_width <- bp_visual_scalar_number(config$box_jitter_width, defaults$box_jitter_width, 0, 1)
   config
 }
 
@@ -228,6 +307,46 @@ bp_visual_recommend_volcano_fields <- function(source, data = NULL) {
     x_scale = "linear",
     y_scale = if (transformed) "linear" else "neg_log10",
     available = nzchar(x) && nzchar(y)
+  )
+}
+
+bp_visual_recommend_boxplot_fields <- function(source, data = NULL) {
+  profile <- bp_visual_column_profile(source, data)
+  columns <- profile$name
+  empty <- list(
+    x_field = "", y_field = "", color_field = "", size_field = "", label_field = "",
+    x_scale = "linear", y_scale = "linear", available = FALSE
+  )
+  if (!length(columns)) return(empty)
+  lower <- tolower(columns)
+  types <- tolower(profile$type)
+  numeric <- types %in% c("numeric", "double", "integer", "number")
+  categorical <- types %in% c("character", "factor", "logical", "ordered")
+  match_column <- function(candidates, eligible = rep(TRUE, length(columns))) {
+    indices <- match(tolower(candidates), lower, nomatch = 0L)
+    indices <- indices[indices > 0L]
+    indices <- indices[eligible[indices]]
+    if (length(indices)) columns[[indices[[1]]]] else ""
+  }
+  group <- match_column(c("group", "condition", "treatment", "status", "class", "category", "cluster"), categorical)
+  if (!nzchar(group)) {
+    suitable <- which(categorical & (is.na(profile$unique) | (profile$unique >= 2L & profile$unique <= 30L)))
+    if (length(suitable)) group <- columns[[suitable[[1]]]]
+  }
+  value <- match_column(c("value", "expression", "abundance", "intensity", "score", "measurement"), numeric)
+  if (!nzchar(value)) {
+    candidates <- which(numeric & columns != group)
+    if (length(candidates)) value <- columns[[candidates[[1]]]]
+  }
+  list(
+    x_field = group,
+    y_field = value,
+    color_field = group,
+    size_field = "",
+    label_field = "",
+    x_scale = "linear",
+    y_scale = "linear",
+    available = nzchar(group) && nzchar(value)
   )
 }
 
@@ -467,7 +586,10 @@ bp_apply_visual_scatter_config <- function(project, config, registry = NULL) {
   project <- unserialize(serialize(project, NULL))
   config <- bp_normalize_visual_scatter_config(config, project)
   project$modules <- Filter(function(instance) {
-    !isTRUE(instance$visual_managed) || !instance$visual_role %in% c("volcano_fc_threshold", "volcano_significance_threshold")
+    !isTRUE(instance$visual_managed) || !instance$visual_role %in% c(
+      "volcano_fc_threshold", "volcano_significance_threshold",
+      "visual_boxplot_layer", "visual_boxplot_jitter", "visual_boxplot_fill_scale"
+    )
   }, project$modules %||% list())
   modules <- project$modules %||% list()
 
@@ -493,6 +615,7 @@ bp_apply_visual_scatter_config <- function(project, config, registry = NULL) {
   if (is.null(mapping) || !identical(bp_value_type(mapping), "RAesMapping")) mapping <- bp_aes_mapping()
   mappings <- mapping$mappings %||% list()
   mappings$colour <- NULL
+  if (identical(bp_visual_chart_type(project), "boxplot")) mappings$fill <- NULL
   mappings$x <- bp_visual_mapping_value(config$x_field, config$x_scale)
   mappings$y <- bp_visual_mapping_value(config$y_field, config$y_scale)
   mappings$color <- bp_visual_mapping_value(config$color_field)
@@ -684,7 +807,7 @@ bp_validate_visual_scatter_config <- function(config, columns = character()) {
 
 bp_visual_chart_type <- function(project) {
   chart_type <- project$visual_config$active_chart_type %||% "scatter"
-  if (chart_type %in% c("scatter", "volcano")) chart_type else "scatter"
+  if (chart_type %in% c("scatter", "volcano", "boxplot")) chart_type else "scatter"
 }
 
 bp_visual_volcano_field_is_transformed <- function(field) {
@@ -739,12 +862,136 @@ bp_visual_volcano_config_from_project <- function(project) {
   bp_normalize_visual_volcano_config(shared, project)
 }
 
+bp_visual_boxplot_config_from_project <- function(project) {
+  config <- bp_normalize_visual_boxplot_config(project$visual_config$boxplot %||% list(), project)
+  config$data_source_id <- project$active_data_source_id %||% config$data_source_id
+  advanced <- FALSE
+
+  root_index <- bp_visual_first_instance(project, "r.ggplot2.ggplot")
+  if (!is.na(root_index)) {
+    root <- project$modules[[root_index]]
+    mapping <- bp_visual_argument_value(root, "mapping")
+    if (!is.null(mapping) && identical(bp_value_type(mapping), "RAesMapping")) {
+      mappings <- mapping$mappings %||% list()
+      x <- bp_visual_mapping_field(mappings$x)
+      y <- bp_visual_mapping_field(mappings$y)
+      fill <- bp_visual_mapping_field(mappings$fill)
+      config$x_field <- if (isTRUE(x$supported)) x$field else ""
+      config$y_field <- if (isTRUE(y$supported)) y$field else ""
+      config$y_scale <- if (isTRUE(y$supported)) y$scale else config$y_scale
+      config$color_field <- if (isTRUE(fill$supported) && identical(fill$scale, "linear")) fill$field else ""
+      if (length(setdiff(names(mappings), c("x", "y", "fill")))) advanced <- TRUE
+    } else if (!is.null(mapping)) advanced <- TRUE
+    if (length(setdiff(bp_visual_module_set_arguments(root), c("data", "mapping")))) advanced <- TRUE
+  }
+
+  box_indices <- which(vapply(project$modules %||% list(), function(instance) {
+    identical(instance$module_id, "r.ggplot2.geom_boxplot") && identical(instance$visual_role %||% "", "visual_boxplot_layer")
+  }, logical(1)))
+  if (length(box_indices)) {
+    box <- project$modules[[box_indices[[length(box_indices)]]]]
+    config$point_color <- bp_visual_argument_character(box, "fill", config$point_color)
+    config$box_border_color <- bp_visual_argument_character(box, "color", config$box_border_color)
+    config$point_size <- bp_visual_argument_number(box, "width", config$point_size)
+    config$alpha <- bp_visual_argument_number(box, "alpha", config$alpha)
+    config$box_outlier_size <- bp_visual_argument_number(box, "outlier.size", config$box_outlier_size)
+    outlier_shape <- bp_visual_argument_value(box, "outlier.shape")
+    config$box_show_outliers <- is.null(outlier_shape) || !identical(bp_value_type(outlier_shape), "RNA")
+    allowed <- c("fill", "color", "width", "alpha", "outlier.shape", "outlier.size")
+    if (length(setdiff(bp_visual_module_set_arguments(box), allowed))) advanced <- TRUE
+  }
+
+  jitter_indices <- which(vapply(project$modules %||% list(), function(instance) {
+    identical(instance$module_id, "r.ggplot2.geom_jitter") && identical(instance$visual_role %||% "", "visual_boxplot_jitter")
+  }, logical(1)))
+  config$box_jitter <- length(jitter_indices) > 0L
+  if (length(jitter_indices)) {
+    jitter <- project$modules[[jitter_indices[[length(jitter_indices)]]]]
+    config$box_jitter_color <- bp_visual_argument_character(jitter, "color", config$box_jitter_color)
+    config$box_jitter_size <- bp_visual_argument_number(jitter, "size", config$box_jitter_size)
+    config$box_jitter_alpha <- bp_visual_argument_number(jitter, "alpha", config$box_jitter_alpha)
+    config$box_jitter_width <- bp_visual_argument_number(jitter, "width", config$box_jitter_width)
+    allowed <- c("width", "height", "color", "size", "alpha", "shape")
+    if (length(setdiff(bp_visual_module_set_arguments(jitter), allowed))) advanced <- TRUE
+  }
+
+  labs_index <- bp_visual_first_instance(project, "r.ggplot2.labs")
+  if (!is.na(labs_index)) {
+    labels <- project$modules[[labs_index]]
+    config$title <- bp_visual_argument_character(labels, "title", config$title)
+    config$x_label <- bp_visual_argument_character(labels, "x", config$x_label)
+    config$y_label <- bp_visual_argument_character(labels, "y", config$y_label)
+    config$legend_title <- bp_visual_argument_character(labels, "fill", config$legend_title)
+  }
+
+  theme_ids <- c(classic = "r.ggplot2.theme_classic", minimal = "r.ggplot2.theme_minimal", bw = "r.ggplot2.theme_bw")
+  theme_index <- bp_visual_first_instance(project, unname(theme_ids))
+  if (!is.na(theme_index)) {
+    theme <- project$modules[[theme_index]]
+    config$theme <- names(theme_ids)[match(theme$module_id, theme_ids)]
+    config$base_size <- bp_visual_argument_number(theme, "base_size", config$base_size)
+  }
+
+  fill_scale <- Filter(function(instance) {
+    identical(instance$module_id, "r.ggplot2.scale_fill_manual") && identical(instance$visual_role %||% "", "visual_boxplot_fill_scale")
+  }, project$modules %||% list())
+  config$palette <- if (length(fill_scale)) fill_scale[[length(fill_scale)]]$visual_palette %||% "default" else "default"
+  controlled_ids <- c(
+    "r.ggplot2.ggplot", "r.ggplot2.geom_boxplot", "r.ggplot2.geom_jitter",
+    "r.ggplot2.labs", unname(theme_ids), "r.ggplot2.scale_fill_manual"
+  )
+  for (instance in project$modules %||% list()) {
+    if (!instance$module_id %in% controlled_ids && !isTRUE(instance$visual_managed)) advanced <- TRUE
+  }
+  config$advanced_preserved <- isTRUE(advanced)
+  bp_normalize_visual_boxplot_config(config, project)
+}
+
 bp_visual_config_from_project <- function(project) {
   if (identical(bp_visual_chart_type(project), "volcano")) {
     bp_visual_volcano_config_from_project(project)
+  } else if (identical(bp_visual_chart_type(project), "boxplot")) {
+    bp_visual_boxplot_config_from_project(project)
   } else {
     bp_visual_scatter_config_from_project(project)
   }
+}
+
+bp_visual_remove_boxplot_group_mappings <- function(project) {
+  project <- unserialize(serialize(project, NULL))
+  changed <- FALSE
+  target_indices <- which(vapply(project$modules %||% list(), function(instance) {
+    identical(instance$module_id, "r.ggplot2.ggplot") ||
+      (identical(instance$visual_role %||% "", "visual_boxplot_layer") &&
+        identical(instance$module_id, "r.ggplot2.geom_boxplot")) ||
+      (identical(instance$visual_role %||% "", "visual_boxplot_jitter") &&
+        identical(instance$module_id, "r.ggplot2.geom_jitter"))
+  }, logical(1)))
+
+  for (index in target_indices) {
+    instance <- project$modules[[index]]
+    argument <- instance$arguments$mapping %||% NULL
+    mapping <- argument$value %||% NULL
+    if (is.null(argument) || is.null(mapping) || !identical(bp_value_type(mapping), "RAesMapping")) next
+    mappings <- mapping$mappings %||% list()
+    if (is.null(mappings$group)) next
+    mappings$group <- NULL
+    argument$value <- bp_aes_mapping(mappings)
+    instance$arguments$mapping <- argument
+    project$modules[[index]] <- instance
+    changed <- TRUE
+  }
+
+  if (isTRUE(changed)) {
+    root_index <- bp_visual_first_instance(project, "r.ggplot2.ggplot")
+    if (!is.na(root_index)) {
+      root <- project$modules[[root_index]]
+      project$mapping_config <- project$mapping_config %||% list()
+      project$mapping_config$plot_id <- root$instance_id
+      project$mapping_config$mapping <- bp_mapping_argument_sources(root$arguments$mapping)
+    }
+  }
+  list(project = project, changed = changed)
 }
 
 bp_visual_remove_automatic_volcano_lines <- function(project) {
@@ -864,9 +1111,145 @@ bp_validate_visual_volcano_config <- function(config, columns = character()) {
   list(valid = !length(errors), errors = unique(errors))
 }
 
+bp_visual_box_palette_source <- function(palette) {
+  switch(
+    palette,
+    blue_red = 'c("#2C7FB8", "grey70", "#D73027")',
+    viridis_like = 'c("#440154", "#3B528B", "#21918C", "#5EC962", "#FDE725")',
+    NULL
+  )
+}
+
+bp_apply_visual_boxplot_config <- function(project, config, registry = NULL) {
+  registry <- registry %||% bp_load_registry()
+  project <- unserialize(serialize(project, NULL))
+  config <- bp_normalize_visual_boxplot_config(config, project)
+  stored_scatter <- project$visual_config$scatter %||% bp_visual_scatter_defaults(project)
+
+  shared <- config
+  shared$chart_type <- "scatter"
+  shared$color_field <- ""
+  shared$size_field <- ""
+  shared$label_field <- ""
+  shared$trend_line <- "none"
+  shared$x_scale <- "linear"
+  scatter_result <- bp_apply_visual_scatter_config(project, shared, registry)
+  project <- scatter_result$project
+  project$visual_config$scatter <- stored_scatter
+
+  project$modules <- Filter(function(instance) {
+    !(isTRUE(instance$visual_managed) && instance$module_id %in% c(
+      "r.ggplot2.geom_point", "r.ggplot2.geom_text", "r.ggplot2.geom_smooth", "r.ggplot2.scale_color_manual"
+    ))
+  }, project$modules %||% list())
+
+  root_index <- bp_visual_first_instance(project, "r.ggplot2.ggplot")
+  root <- project$modules[[root_index]]
+  mapping_argument <- root$arguments$mapping %||% bp_argument(origin = "formal")
+  mapping <- mapping_argument$value
+  if (is.null(mapping) || !identical(bp_value_type(mapping), "RAesMapping")) mapping <- bp_aes_mapping()
+  mappings <- mapping$mappings %||% list()
+  # A group mapping left behind by an imported/advanced plot makes
+  # geom_boxplot() dodge boxes within each x value, while geom_jitter()
+  # remains centred on x. Visual mode owns the grouping through x/fill, so
+  # remove the stale explicit group aesthetic when rebuilding a boxplot.
+  for (name in c("color", "colour", "size", "label", "group")) mappings[[name]] <- NULL
+  mappings$x <- bp_visual_mapping_value(config$x_field, "linear")
+  mappings$y <- bp_visual_mapping_value(config$y_field, config$y_scale)
+  mappings$fill <- bp_visual_mapping_value(config$color_field, "linear")
+  mapping_argument$state <- "explicit"
+  mapping_argument$value <- bp_aes_mapping(mappings)
+  root$arguments$mapping <- mapping_argument
+  root$visual_managed <- TRUE
+  project$modules[[root_index]] <- root
+
+  box <- bp_instantiate_module("r.ggplot2.geom_boxplot", registry)
+  box$visual_managed <- TRUE
+  box$visual_role <- "visual_boxplot_layer"
+  if (nzchar(config$color_field)) {
+    box$arguments$fill$state <- "unset"
+  } else {
+    box$arguments$fill <- bp_argument("explicit", bp_character(config$point_color), "dots_aesthetic")
+  }
+  box$arguments$color <- bp_argument("explicit", bp_character(config$box_border_color), "dots_aesthetic")
+  box$arguments$width <- bp_argument("explicit", bp_double(config$point_size), "formal")
+  box$arguments$alpha <- bp_argument("explicit", bp_double(config$alpha), "dots_aesthetic")
+  box$arguments$outlier.shape <- if (isTRUE(config$box_show_outliers)) {
+    bp_argument("explicit", bp_double(16), "dots_documented")
+  } else {
+    bp_argument("explicit_na", bp_na("integer"), "dots_documented")
+  }
+  box$arguments$outlier.size <- bp_argument("explicit", bp_double(config$box_outlier_size), "dots_documented")
+  project$modules <- append(project$modules, list(box), after = root_index)
+
+  if (isTRUE(config$box_jitter)) {
+    jitter <- bp_instantiate_module("r.ggplot2.geom_jitter", registry)
+    jitter$visual_managed <- TRUE
+    jitter$visual_role <- "visual_boxplot_jitter"
+    jitter$arguments$width <- bp_argument("explicit", bp_double(config$box_jitter_width), "formal")
+    jitter$arguments$height <- bp_argument("explicit", bp_double(0), "formal")
+    jitter$arguments$color <- bp_argument("explicit", bp_character(config$box_jitter_color), "dots_aesthetic")
+    jitter$arguments$size <- bp_argument("explicit", bp_double(config$box_jitter_size), "dots_aesthetic")
+    jitter$arguments$alpha <- bp_argument("explicit", bp_double(config$box_jitter_alpha), "dots_aesthetic")
+    jitter$arguments$shape <- bp_argument("explicit", bp_double(16), "dots_aesthetic")
+    project$modules <- append(project$modules, list(jitter), after = root_index + 1L)
+  }
+
+  labs_index <- bp_visual_first_instance(project, "r.ggplot2.labs")
+  if (!is.na(labs_index)) {
+    labels <- project$modules[[labs_index]]
+    labels <- bp_visual_set_text_argument(labels, "color", "", "dots_documented")
+    labels <- bp_visual_set_text_argument(labels, "fill", if (nzchar(config$color_field)) config$legend_title else "", "dots_documented")
+    project$modules[[labs_index]] <- labels
+  }
+
+  palette_source <- if (nzchar(config$color_field)) bp_visual_box_palette_source(config$palette) else NULL
+  if (!is.null(palette_source)) {
+    scale <- bp_instantiate_module("r.ggplot2.scale_fill_manual", registry)
+    scale$visual_managed <- TRUE
+    scale$visual_role <- "visual_boxplot_fill_scale"
+    scale$visual_palette <- config$palette
+    scale$arguments$values <- bp_argument("raw_expression", bp_raw_expression(palette_source), "formal")
+    project$modules[[length(project$modules) + 1L]] <- scale
+  }
+
+  root_index <- bp_visual_first_instance(project, "r.ggplot2.ggplot")
+  root <- project$modules[[root_index]]
+  project$mapping_config <- list(
+    dataset_id = project$active_data_source_id %||% config$data_source_id,
+    plot_id = root$instance_id,
+    mapping = bp_mapping_argument_sources(root$arguments$mapping),
+    confirmed_by_user = TRUE
+  )
+  project$visual_config <- project$visual_config %||% list()
+  project$visual_config$active_chart_type <- "boxplot"
+  project$visual_config$boxplot <- config
+  config <- bp_visual_boxplot_config_from_project(project)
+  project$visual_config$boxplot <- config
+  list(project = project, root_instance_id = root$instance_id, config = config)
+}
+
+bp_validate_visual_boxplot_config <- function(config, columns = character()) {
+  raw_config <- config %||% list()
+  config <- bp_normalize_visual_boxplot_config(config)
+  validation <- bp_validate_visual_scatter_config(config, columns)
+  errors <- validation$errors
+  if (!nzchar(config$x_field)) errors <- c(errors, "请选择箱线图分组字段。")
+  if (!nzchar(config$y_field)) errors <- c(errors, "请选择箱线图数值字段。")
+  jitter_color <- trimws(bp_visual_scalar_character(raw_config$box_jitter_color, config$box_jitter_color))
+  if (isTRUE(config$box_jitter) && !grepl("^#[0-9A-Fa-f]{6}$", jitter_color)) {
+    errors <- c(errors, "Boxplot jitter color must use a 6-digit hexadecimal value such as #334155.")
+  }
+  border <- trimws(bp_visual_scalar_character(raw_config$box_border_color, config$box_border_color))
+  if (!grepl("^#[0-9A-Fa-f]{6}$", border)) errors <- c(errors, "箱线图边框颜色需使用 6 位十六进制颜色。")
+  list(valid = !length(errors), errors = unique(errors))
+}
+
 bp_apply_visual_config <- function(project, config, registry = NULL) {
   if (identical(config$chart_type %||% "scatter", "volcano")) {
     bp_apply_visual_volcano_config(project, config, registry)
+  } else if (identical(config$chart_type %||% "scatter", "boxplot")) {
+    bp_apply_visual_boxplot_config(project, config, registry)
   } else {
     bp_apply_visual_scatter_config(project, config, registry)
   }
@@ -875,6 +1258,8 @@ bp_apply_visual_config <- function(project, config, registry = NULL) {
 bp_validate_visual_config <- function(config, columns = character()) {
   if (identical(config$chart_type %||% "scatter", "volcano")) {
     bp_validate_visual_volcano_config(config, columns)
+  } else if (identical(config$chart_type %||% "scatter", "boxplot")) {
+    bp_validate_visual_boxplot_config(config, columns)
   } else {
     bp_validate_visual_scatter_config(config, columns)
   }

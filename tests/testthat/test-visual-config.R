@@ -19,6 +19,207 @@ test_that("volcano recommendations recognize fold-change and significance column
   expect_identical(recommendation$label_field, "gene")
 })
 
+test_that("boxplot recommendations recognize grouping and numeric value columns", {
+  source <- bp_example_data_source()
+  recommendation <- bp_visual_recommend_boxplot_fields(source, bp_default_environment()$df)
+  expect_true(recommendation$available)
+  expect_identical(recommendation$x_field, "group")
+  expect_identical(recommendation$y_field, "value")
+  expect_identical(recommendation$color_field, "group")
+})
+
+test_that("cross-chart default labels are repaired without overwriting custom labels", {
+  volcano <- bp_visual_volcano_defaults()
+  infected_box <- bp_visual_boxplot_defaults()
+  fields <- c("title", "x_label", "y_label", "legend_title")
+  for (field in fields) infected_box[[field]] <- volcano[[field]]
+
+  repaired <- bp_visual_repair_cross_chart_labels(infected_box, "boxplot")
+  box_defaults <- bp_visual_boxplot_defaults()
+  expect_identical(repaired[fields], box_defaults[fields])
+
+  infected_box$title <- "Custom distribution title"
+  preserved <- bp_visual_repair_cross_chart_labels(infected_box, "boxplot")
+  expect_identical(preserved[fields], infected_box[fields])
+})
+
+test_that("boxplot config compiles grouped distributions through ordinary modules", {
+  project <- bp_basic_scatter_project(registry)
+  config <- bp_visual_boxplot_defaults(project)
+  config$x_field <- "group"
+  config$y_field <- "value"
+  config$color_field <- "group"
+  config$palette <- "viridis_like"
+  config$title <- "Grouped values"
+
+  result <- bp_apply_visual_boxplot_config(project, config, registry)
+  code <- bp_generate_code(result$project, registry)
+  roles <- vapply(result$project$modules, function(instance) instance$visual_role %||% "", character(1))
+
+  expect_identical(result$project$visual_config$active_chart_type, "boxplot")
+  expect_match(code, "aes(x = group, y = value, fill = group)", fixed = TRUE)
+  expect_match(code, 'geom_boxplot(color = "#334155", width = 0.65, alpha = 0.85', fixed = TRUE)
+  expect_match(code, "scale_fill_manual", fixed = TRUE)
+  expect_false(grepl("geom_point", code, fixed = TRUE))
+  expect_true("visual_boxplot_layer" %in% roles)
+  expect_true("visual_boxplot_fill_scale" %in% roles)
+  expect_true(bp_execute_project(result$project, registry)$ok)
+})
+
+test_that("boxplot can hide outliers and use a fixed fill", {
+  project <- bp_basic_scatter_project(registry)
+  config <- bp_visual_boxplot_defaults(project)
+  config$x_field <- "condition"
+  config$y_field <- "expression"
+  config$color_field <- ""
+  config$point_color <- "#90CAF9"
+  config$box_show_outliers <- FALSE
+
+  result <- bp_apply_visual_boxplot_config(project, config, registry)
+  code <- bp_generate_code(result$project, registry)
+
+  expect_match(code, 'geom_boxplot(color = "#334155", fill = "#90CAF9"', fixed = TRUE)
+  expect_match(code, "outlier.shape = NA", fixed = TRUE)
+  expect_false(grepl("scale_fill_manual", code, fixed = TRUE))
+  expect_true(bp_execute_project(result$project, registry)$ok)
+})
+
+test_that("boxplot can overlay configurable geom_jitter observations", {
+  project <- bp_basic_scatter_project(registry)
+  config <- bp_visual_boxplot_defaults(project)
+  config$x_field <- "group"
+  config$y_field <- "value"
+  config$color_field <- "group"
+  config$box_jitter <- TRUE
+  config$box_jitter_color <- "#102A43"
+  config$box_jitter_size <- 1.8
+  config$box_jitter_alpha <- 0.4
+  config$box_jitter_width <- 0.22
+
+  result <- bp_apply_visual_boxplot_config(project, config, registry)
+  code <- bp_generate_code(result$project, registry)
+  roles <- vapply(result$project$modules, function(instance) instance$visual_role %||% "", character(1))
+
+  expect_match(
+    code,
+    'geom_jitter(width = 0.22, height = 0, color = "#102A43", size = 1.8, alpha = 0.4, shape = 16)',
+    fixed = TRUE
+  )
+  expect_lt(regexpr("geom_boxplot", code, fixed = TRUE)[[1]], regexpr("geom_jitter", code, fixed = TRUE)[[1]])
+  expect_true("visual_boxplot_jitter" %in% roles)
+  expect_true(isTRUE(result$config$box_jitter))
+  expect_true(isTRUE(result$config$box_outlier_restore))
+  expect_true(bp_execute_project(result$project, registry)$ok)
+
+  config$box_jitter <- FALSE
+  disabled <- bp_apply_visual_boxplot_config(result$project, config, registry)
+  disabled_code <- bp_generate_code(disabled$project, registry)
+  disabled_roles <- vapply(disabled$project$modules, function(instance) instance$visual_role %||% "", character(1))
+  expect_false(grepl("geom_jitter", disabled_code, fixed = TRUE))
+  expect_false("visual_boxplot_jitter" %in% disabled_roles)
+})
+
+test_that("boxplot clears stale group mappings so boxes, ticks, and jitter stay aligned", {
+  project <- bp_basic_scatter_project(registry)
+  root_index <- bp_visual_first_instance(project, "r.ggplot2.ggplot")
+  project$modules[[root_index]]$arguments$mapping <- bp_argument(
+    "explicit",
+    bp_aes_mapping(list(
+      x = bp_symbol("PC1"),
+      y = bp_symbol("PC2"),
+      group = bp_symbol("status")
+    )),
+    "formal"
+  )
+
+  config <- bp_visual_boxplot_defaults(project)
+  config$x_field <- "group"
+  config$y_field <- "value"
+  config$color_field <- "group"
+  config$box_jitter <- TRUE
+  result <- bp_apply_visual_boxplot_config(project, config, registry)
+  code <- bp_generate_code(result$project, registry)
+  execution <- bp_execute_project(result$project, registry)
+
+  expect_false(grepl("group = status", code, fixed = TRUE))
+  expect_true(execution$ok)
+
+  built <- ggplot2::ggplot_build(execution$plot)
+  box_centres <- sort(unique(round(built$data[[1]]$x, 6)))
+  jitter_centres <- vapply(split(built$data[[2]]$x, built$data[[2]]$group), mean, numeric(1))
+  expect_equal(box_centres, c(1, 2, 3))
+  expect_equal(as.numeric(jitter_centres), c(1, 2, 3), tolerance = config$box_jitter_width)
+})
+
+test_that("entering visual boxplot mode removes only conflicting group mappings", {
+  project <- bp_basic_scatter_project(registry)
+  config <- bp_visual_boxplot_defaults(project)
+  config$x_field <- "group"
+  config$y_field <- "value"
+  config$color_field <- "group"
+  project <- bp_apply_visual_boxplot_config(project, config, registry)$project
+  root_index <- bp_visual_first_instance(project, "r.ggplot2.ggplot")
+  project$modules[[root_index]]$arguments$mapping <- bp_argument(
+    "explicit",
+    bp_aes_mapping(list(
+      x = bp_symbol("group"),
+      y = bp_symbol("value"),
+      fill = bp_symbol("group"),
+      group = bp_symbol("status")
+    )),
+    "formal"
+  )
+  box_index <- bp_visual_first_instance(project, "r.ggplot2.geom_boxplot")
+  project$modules[[box_index]]$arguments$notch <- bp_argument("explicit", bp_logical(TRUE), "formal")
+
+  repaired <- bp_visual_remove_boxplot_group_mappings(project)
+  code <- bp_generate_code(repaired$project, registry)
+
+  expect_true(repaired$changed)
+  expect_false(grepl("group = status", code, fixed = TRUE))
+  expect_match(code, "notch = TRUE", fixed = TRUE)
+})
+
+test_that("boxplot remembers a disabled outlier state while jitter is active", {
+  project <- bp_basic_scatter_project(registry)
+  config <- bp_visual_boxplot_defaults(project)
+  config$x_field <- "group"
+  config$y_field <- "value"
+  config$box_show_outliers <- FALSE
+  config$box_outlier_restore <- FALSE
+  config$box_jitter <- TRUE
+
+  result <- bp_apply_visual_boxplot_config(project, config, registry)
+
+  expect_false(result$config$box_show_outliers)
+  expect_false(result$config$box_outlier_restore)
+  expect_true(result$config$box_jitter)
+  expect_match(bp_generate_code(result$project, registry), "outlier.shape = NA_integer_", fixed = TRUE)
+})
+
+test_that("switching from boxplot to scatter removes managed boxplot layers", {
+  project <- bp_basic_scatter_project(registry)
+  box <- bp_visual_boxplot_defaults(project)
+  box$x_field <- "group"
+  box$y_field <- "value"
+  box$color_field <- "group"
+  box$palette <- "blue_red"
+  box$box_jitter <- TRUE
+  project <- bp_apply_visual_boxplot_config(project, box, registry)$project
+
+  scatter <- bp_visual_scatter_defaults(project)
+  scatter$x_field <- "PC1"
+  scatter$y_field <- "PC2"
+  result <- bp_apply_visual_scatter_config(project, scatter, registry)
+  code <- bp_generate_code(result$project, registry)
+  roles <- vapply(result$project$modules, function(instance) instance$visual_role %||% "", character(1))
+
+  expect_identical(result$project$visual_config$active_chart_type, "scatter")
+  expect_false(any(grepl("^visual_boxplot", roles)))
+  expect_false(grepl("geom_boxplot|geom_jitter|scale_fill_manual", code))
+  expect_true(bp_execute_project(result$project, registry)$ok)
+})
+
 test_that("volcano config compiles automatic regulation groups without automatic reference lines", {
   project <- bp_basic_scatter_project(registry)
   config <- bp_visual_volcano_defaults(project)

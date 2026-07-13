@@ -54,14 +54,15 @@ bp_visual_section_header <- function(number, title, description = NULL, action =
   )
 }
 
-bp_visual_chart_card <- function(id, chart_type, title, subtitle, icon, active = FALSE, disabled = FALSE) {
+bp_visual_chart_card <- function(id, chart_type, title, subtitle, icon, requirement, active = FALSE, disabled = FALSE) {
   shiny::actionButton(
     inputId = id,
     label = htmltools::tagList(
       bp_icon(icon, 22),
       htmltools::tags$span(
         htmltools::tags$strong(title),
-        htmltools::tags$small(subtitle)
+        htmltools::tags$small(subtitle),
+        htmltools::tags$span(class = "bp-visual-chart-requirement", paste0("数据要求：", requirement))
       ),
       if (disabled) htmltools::tags$em("后续阶段") else bp_icon("check", 16)
     ),
@@ -69,7 +70,7 @@ bp_visual_chart_card <- function(id, chart_type, title, subtitle, icon, active =
     disabled = disabled,
     `data-chart-type` = chart_type,
     `aria-pressed` = if (active) "true" else "false",
-    `aria-label` = paste(title, subtitle)
+    `aria-label` = paste(title, subtitle, "数据要求", requirement)
   )
 }
 
@@ -187,25 +188,48 @@ bp_workspace_ui <- function(root) {
               class = "bp-visual-config-section",
               bp_visual_section_header("01", "选择数据源", "选择已注册且可用的数据；数据预览和字段候选会自动同步。"),
               shiny::selectInput("visual_data_source", label = "数据表", choices = c("正在读取…" = ""), selectize = FALSE, width = "100%"),
-              shiny::uiOutput("visual_data_profile")
+              shiny::uiOutput("visual_data_profile"),
+              htmltools::tags$div(
+                id = "visual_data_preview",
+                class = "bp-visual-data-preview",
+                htmltools::tags$input(
+                  id = "visual_data_preview_toggle",
+                  class = "bp-visual-data-preview-checkbox",
+                  type = "checkbox",
+                  `aria-controls` = "visual_data_preview_content",
+                  `aria-label` = "预览数据：前 30 行和全部列"
+                ),
+                htmltools::tags$label(
+                  `for` = "visual_data_preview_toggle",
+                  class = "bp-visual-data-preview-toggle",
+                  htmltools::tags$span(class = "bp-visual-data-preview-title", bp_icon("table", 15), "预览数据"),
+                  htmltools::tags$span(class = "bp-visual-data-preview-hint", "前 30 行 · 全部列"),
+                  htmltools::tags$span(class = "bp-visual-data-preview-chevron", "⌄")
+                ),
+                htmltools::tags$div(
+                  id = "visual_data_preview_content",
+                  class = "bp-visual-data-preview-content",
+                  shiny::uiOutput("visual_active_data_preview")
+                )
+              )
             ),
             htmltools::tags$section(
               id = "visual-section-chart",
               class = "bp-visual-config-section",
-              bp_visual_section_header("02", "选择图表类型", "当前支持散点图和火山图；其他类型将在后续阶段接入同一配置层。"),
+              bp_visual_section_header("02", "选择图表类型", "当前支持散点图、火山图和箱线图；PCA 图将在后续阶段接入。"),
               htmltools::tags$div(
                 class = "bp-visual-chart-grid",
-                bp_visual_chart_card("visual_chart_scatter", "scatter", "散点图", "比较两个连续变量", "point", active = TRUE),
-                bp_visual_chart_card("visual_chart_volcano", "volcano", "火山图", "差异表达结果", "plot"),
-                bp_visual_chart_card("visual_chart_boxplot", "boxplot", "箱线图", "比较组间分布", "boxplot", disabled = TRUE),
-                bp_visual_chart_card("visual_chart_pca", "pca", "PCA 图", "样本降维概览", "mapping", disabled = TRUE)
+                bp_visual_chart_card("visual_chart_scatter", "scatter", "散点图", "比较两个连续变量", "point", "至少 2 个数值型字段（X、Y）", active = TRUE),
+                bp_visual_chart_card("visual_chart_volcano", "volcano", "火山图", "差异表达结果", "plot", "倍数变化列 + P 值或 FDR 列"),
+                bp_visual_chart_card("visual_chart_boxplot", "boxplot", "箱线图", "比较组间分布", "boxplot", "1 个分组字段 + 1 个数值字段"),
+                bp_visual_chart_card("visual_chart_pca", "pca", "PCA 图", "样本降维概览", "mapping", "样本 × 特征的数值矩阵", disabled = TRUE)
               )
             ),
             htmltools::tags$section(
               id = "visual-section-fields",
               class = "bp-visual-config-section",
               bp_visual_section_header(
-                "03", "映射数据字段", "散点图需要 X/Y；火山图需要倍数变化和显著性字段。",
+                "03", "映射数据字段", "散点图需要 X/Y；火山图需要倍数变化和显著性字段；箱线图需要分组和数值字段。",
                 shiny::actionButton("visual_recommend_fields", "智能推荐", icon = shiny::icon("wand-magic-sparkles"), class = "bp-link-button")
               ),
               shiny::uiOutput("visual_field_recommendation"),
@@ -214,12 +238,12 @@ bp_workspace_ui <- function(root) {
                 htmltools::tags$div(class = "bp-visual-field-control", `data-visual-field` = "x", shiny::selectizeInput("visual_x", "X 轴字段 *", choices = NULL, options = list(placeholder = "选择数值列"), width = "100%")),
                 htmltools::tags$div(class = "bp-visual-field-control", `data-visual-field` = "y", shiny::selectizeInput("visual_y", "Y 轴字段 *", choices = NULL, options = list(placeholder = "选择数值列"), width = "100%")),
                 htmltools::tags$div(class = "bp-visual-field-control", `data-visual-field` = "color", shiny::selectizeInput("visual_color", "颜色/状态分组", choices = NULL, options = list(placeholder = "不映射颜色"), width = "100%")),
-                shiny::selectizeInput("visual_size", "点大小映射", choices = NULL, options = list(placeholder = "固定大小"), width = "100%"),
-                shiny::selectizeInput("visual_label", "标签字段", choices = NULL, options = list(placeholder = "不显示标签"), width = "100%")
+                htmltools::tags$div(class = "bp-point-only", shiny::selectizeInput("visual_size", "点大小映射", choices = NULL, options = list(placeholder = "固定大小"), width = "100%")),
+                htmltools::tags$div(class = "bp-point-only", shiny::selectizeInput("visual_label", "标签字段", choices = NULL, options = list(placeholder = "不显示标签"), width = "100%"))
               ),
               htmltools::tags$div(
                 class = "bp-visual-transform-grid",
-                shiny::selectInput("visual_x_scale", "X 值转换", choices = c("线性" = "linear", "log10" = "log10", "-log10" = "neg_log10"), width = "100%"),
+                htmltools::tags$div(class = "bp-non-boxplot-only", shiny::selectInput("visual_x_scale", "X 值转换", choices = c("线性" = "linear", "log10" = "log10", "-log10" = "neg_log10"), width = "100%")),
                 shiny::selectInput("visual_y_scale", "Y 值转换", choices = c("线性" = "linear", "log10" = "log10", "-log10" = "neg_log10"), width = "100%")
               ),
               htmltools::tags$div(
@@ -239,14 +263,50 @@ bp_workspace_ui <- function(root) {
               bp_visual_section_header("04", "设置常用样式", "仅展示高频选项；原有高级参数不会被删除。"),
               htmltools::tags$div(
                 class = "bp-visual-control-grid",
-                htmltools::tags$div(class = "bp-visual-color-control", htmltools::tags$span(class = "bp-visual-color-swatch"), shiny::textInput("visual_point_color", "点颜色", value = "#2C7FB8", width = "100%")),
-                shiny::numericInput("visual_point_size", "固定点大小", value = 2, min = 0.1, max = 20, step = 0.1, width = "100%"),
+                htmltools::tags$div(class = "bp-visual-color-control", `data-visual-style` = "primary-color", htmltools::tags$span(class = "bp-visual-color-swatch"), shiny::textInput("visual_point_color", "点颜色", value = "#2C7FB8", width = "100%")),
+                htmltools::tags$div(class = "bp-visual-size-control", shiny::numericInput("visual_point_size", "固定点大小", value = 2, min = 0.1, max = 20, step = 0.1, width = "100%")),
                 shiny::numericInput("visual_alpha", "透明度", value = 0.72, min = 0, max = 1, step = 0.05, width = "100%"),
-                shiny::selectInput("visual_shape", "点形状", choices = c("实心圆" = "16", "空心圆" = "1", "实心方形" = "15", "实心三角" = "17", "菱形" = "18"), width = "100%"),
+                htmltools::tags$div(class = "bp-point-only", shiny::selectInput("visual_shape", "点形状", choices = c("实心圆" = "16", "空心圆" = "1", "实心方形" = "15", "实心三角" = "17", "菱形" = "18"), width = "100%")),
                 shiny::selectInput("visual_palette", "分组调色板", choices = c("沿用项目 / 默认" = "default", "蓝–灰–红" = "blue_red", "Viridis 风格" = "viridis_like"), width = "100%"),
                 htmltools::tags$div(class = "bp-scatter-only", shiny::selectInput("visual_trend", "趋势线", choices = c("无" = "none", "线性拟合" = "linear", "平滑拟合" = "smooth"), width = "100%")),
                 shiny::selectInput("visual_theme", "图表主题", choices = c("经典" = "classic", "简洁" = "minimal", "黑白" = "bw"), width = "100%"),
                 shiny::numericInput("visual_base_size", "基础字号", value = 12, min = 6, max = 40, step = 1, width = "100%")
+              ),
+              htmltools::tags$div(
+                class = "bp-visual-control-grid bp-boxplot-only",
+                hidden = "hidden",
+                htmltools::tags$div(
+                  class = "bp-visual-color-control",
+                  htmltools::tags$span(class = "bp-visual-color-swatch"),
+                  shiny::textInput("visual_box_border_color", "箱体边框色", value = "#334155", width = "100%")
+                ),
+                shiny::checkboxInput("visual_box_show_outliers", "显示离群点", value = TRUE),
+                shiny::numericInput("visual_box_outlier_size", "离群点大小", value = 1.5, min = 0.1, max = 10, step = 0.1, width = "100%")
+              ),
+              htmltools::tags$div(
+                class = "bp-boxplot-jitter-card bp-boxplot-only",
+                hidden = "hidden",
+                shiny::checkboxInput("visual_box_jitter", "叠加抖动散点（geom_jitter）", value = FALSE),
+                htmltools::tags$p("将原始观测点叠加在箱线图上；仅进行横向抖动，便于查看样本分布。"),
+                shiny::conditionalPanel(
+                  condition = "input.visual_box_jitter && input.visual_box_show_outliers",
+                  htmltools::tags$div(
+                    class = "bp-boxplot-overlap-warning",
+                    bp_icon("warning", 14),
+                    htmltools::tags$span("离群点会同时由 geom_boxplot() 和 geom_jitter() 绘制，可能出现重叠或颜色加深。")
+                  )
+                ),
+                htmltools::tags$div(
+                  class = "bp-visual-control-grid bp-boxplot-jitter-options",
+                  htmltools::tags$div(
+                    class = "bp-visual-color-control",
+                    htmltools::tags$span(class = "bp-visual-color-swatch"),
+                    shiny::textInput("visual_box_jitter_color", "抖动点颜色", value = "#334155", width = "100%")
+                  ),
+                  shiny::numericInput("visual_box_jitter_size", "抖动点大小", value = 1.4, min = 0.1, max = 10, step = 0.1, width = "100%"),
+                  shiny::numericInput("visual_box_jitter_alpha", "抖动点透明度", value = 0.55, min = 0, max = 1, step = 0.05, width = "100%"),
+                  shiny::numericInput("visual_box_jitter_width", "横向抖动宽度", value = 0.16, min = 0, max = 1, step = 0.01, width = "100%")
+                )
               ),
               htmltools::tags$div(
                 class = "bp-visual-reference-card",
