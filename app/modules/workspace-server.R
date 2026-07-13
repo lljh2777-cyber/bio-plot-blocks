@@ -722,6 +722,17 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     bp_visual_boxplot_defaults(initial),
     initial_boxplot_recommendation[c("x_field", "y_field", "color_field", "x_scale", "y_scale")]
   ), initial)
+  initial$visual_config$pca <- bp_normalize_pca_config(utils::modifyList(
+    bp_pca_defaults(initial),
+    list(
+      expression_source_id = "dataset_example",
+      expression_orientation = "genes_by_samples",
+      feature_id_location = "column",
+      feature_id_field = "gene",
+      transform = "none",
+      variable_feature_count = "all"
+    )
+  ), initial)
   selected_initial <- initial$modules[[1]]$instance_id
   state <- shiny::reactiveValues(
     project = initial,
@@ -812,6 +823,62 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     )
   }
 
+  pca_source_data <- function(source_id, project = state$project) {
+    if (!nzchar(source_id %||% "")) return(NULL)
+    source <- bp_pca_source(project, source_id)
+    if (is.null(source) || identical(source$status, "relink_required") || isTRUE(source$relink_required)) return(NULL)
+    if (isTRUE(source$example)) bp_default_environment()$df else state$data_objects[[source_id]]
+  }
+
+  compute_pca_for_config <- function(config = bp_pca_config_from_project(state$project), project = state$project) {
+    config <- bp_normalize_pca_config(config, project)
+    expression_data <- pca_source_data(config$expression_source_id, project)
+    if (is.null(expression_data)) {
+      return(list(ok = FALSE, error = "PCA 表达数据源不可用；请重新导入或链接该数据。", diagnostics = list(), warnings = character()))
+    }
+    metadata_data <- if (nzchar(config$metadata_source_id)) pca_source_data(config$metadata_source_id, project) else NULL
+    if (nzchar(config$metadata_source_id) && is.null(metadata_data)) {
+      return(list(ok = FALSE, error = "PCA 样本信息数据源不可用；请重新导入或链接该数据。", diagnostics = list(), warnings = character()))
+    }
+    bp_compute_pca(expression_data, metadata_data, config)
+  }
+
+  prepare_pca_config <- function(config, project = state$project) {
+    config <- bp_normalize_pca_config(config, project)
+    result <- compute_pca_for_config(config, project)
+    if (!isTRUE(result$ok)) return(list(config = config, result = result, cleared = character()))
+    columns <- names(result$scores)
+    components <- columns[grepl("^PC[0-9]+$", columns)]
+    first_or <- function(values, fallback) if (length(values)) values[[1]] else fallback
+    if (!config$x_component %in% components) config$x_component <- first_or(components, "PC1")
+    if (!config$y_component %in% components || identical(config$y_component, config$x_component)) {
+      config$y_component <- first_or(setdiff(components, config$x_component), config$x_component)
+    }
+    cleared <- character()
+    for (field in c("color_field", "shape_field", "label_field")) {
+      if (nzchar(config[[field]]) && !config[[field]] %in% columns) {
+        cleared <- c(cleared, config[[field]])
+        config[[field]] <- ""
+      }
+    }
+    list(config = config, result = result, cleared = cleared)
+  }
+
+  pca_result <- shiny::reactive({
+    if (!identical(bp_visual_chart_type(state$project), "pca")) return(NULL)
+    compute_pca_for_config(bp_pca_config_from_project(state$project), state$project)
+  })
+
+  cache_pca_result <- function(result, project = NULL) {
+    if (is.null(result) || !isTRUE(result$ok)) return(FALSE)
+    objects <- shiny::isolate(state$data_objects)
+    objects[["dataset_pca_scores"]] <- result$scores
+    objects[["dataset_pca_loadings"]] <- result$loadings
+    state$data_objects <- objects
+    state$data_preview_source_id <- "dataset_pca_scores"
+    TRUE
+  }
+
   start_preview <- function() {
     process <- shiny::isolate(state$preview_process)
     if (!is.null(process) && process$is_alive()) process$kill()
@@ -821,6 +888,16 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     state$preview_result <- NULL
     state$preview_status_file <- status_path
     state$preview_pending_image <- image_path
+    if (identical(bp_visual_chart_type(shiny::isolate(state$project)), "pca")) {
+      result <- shiny::isolate(compute_pca_for_config(bp_pca_config_from_project(state$project), state$project))
+      if (!isTRUE(result$ok)) {
+        state$preview_status <- "error"
+        state$preview_result <- list(ok = FALSE, error = result$error %||% "PCA 计算失败。", warnings = result$warnings %||% list(), messages = list())
+        state$preview_pending_image <- NULL
+        return()
+      }
+      cache_pca_result(result)
+    }
     active_id <- shiny::isolate(state$project$active_data_source_id %||% "dataset_example")
     active_sources <- Filter(function(source) identical(source$id, active_id), shiny::isolate(state$project$data_sources %||% list()))
     if (length(active_sources) && !isTRUE(active_sources[[1]]$example) && is.null(shiny::isolate(state$data_objects[[active_id]]))) {
@@ -856,10 +933,19 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
 
   visual_source_data <- function(source = visual_source()) {
     if (is.null(source)) return(NULL)
+    if (isTRUE(source$derived) && identical(source$source_type, "derived_pca")) {
+      result <- pca_result()
+      if (is.null(result) || !isTRUE(result$ok)) return(NULL)
+      return(result[[source$derived_kind %||% "scores"]])
+    }
     if (isTRUE(source$example)) bp_default_environment()$df else shiny::isolate(state$data_objects[[source$id]])
   }
 
   visual_current_columns <- function(project = state$project) {
+    if (identical(bp_visual_chart_type(project), "pca")) {
+      result <- pca_result()
+      return(if (!is.null(result) && isTRUE(result$ok)) names(result$scores) else character())
+    }
     source <- visual_source(project)
     if (is.null(source)) return(character())
     data <- if (isTRUE(source$example)) bp_default_environment()$df else state$data_objects[[source$id]]
@@ -880,6 +966,8 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       bp_normalize_visual_volcano_config(config, project)
     } else if (identical(config$chart_type %||% "scatter", "boxplot")) {
       bp_normalize_visual_boxplot_config(config, project)
+    } else if (identical(config$chart_type %||% "scatter", "pca")) {
+      bp_normalize_pca_config(config, project)
     } else {
       bp_normalize_visual_scatter_config(config, project)
     }
@@ -887,6 +975,54 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
 
   visual_config_from_inputs <- function() {
     current <- visual_active_config(state$project)
+    if (identical(current$chart_type %||% "scatter", "pca")) {
+      feature_choice <- input$visual_pca_feature_count %||% if (identical(current$variable_feature_count, "all")) "all" else as.character(current$variable_feature_count)
+      feature_count <- if (identical(feature_choice, "custom")) {
+        input$visual_pca_custom_feature_count %||% current$custom_feature_count
+      } else if (identical(feature_choice, "all")) {
+        "all"
+      } else {
+        suppressWarnings(as.integer(feature_choice))
+      }
+      feature_field <- input$visual_pca_feature_id_field %||% current$feature_id_field
+      sample_field <- input$visual_pca_expression_sample_id_field %||% current$expression_sample_id_field
+      return(list(
+        chart_type = "pca",
+        expression_source_id = input$visual_pca_expression_source %||% current$expression_source_id,
+        metadata_source_id = input$visual_pca_metadata_source %||% current$metadata_source_id,
+        expression_orientation = input$visual_pca_orientation %||% current$expression_orientation,
+        feature_id_location = if (nzchar(feature_field %||% "")) "column" else "auto",
+        feature_id_field = feature_field %||% "",
+        expression_sample_id_location = if (nzchar(sample_field %||% "")) "column" else "auto",
+        expression_sample_id_field = sample_field %||% "",
+        metadata_sample_id_field = input$visual_pca_metadata_id_field %||% current$metadata_sample_id_field,
+        unmatched_sample_policy = input$visual_pca_unmatched_policy %||% current$unmatched_sample_policy,
+        transform = input$visual_pca_transform %||% current$transform,
+        variable_feature_count = feature_count,
+        custom_feature_count = input$visual_pca_custom_feature_count %||% current$custom_feature_count,
+        remove_zero_variance = if (is.null(input$visual_pca_remove_zero_variance)) isTRUE(current$remove_zero_variance) else isTRUE(input$visual_pca_remove_zero_variance),
+        missing_value_policy = input$visual_pca_missing_policy %||% current$missing_value_policy,
+        center = if (is.null(input$visual_pca_center)) isTRUE(current$center) else isTRUE(input$visual_pca_center),
+        scale = if (is.null(input$visual_pca_scale)) isTRUE(current$scale) else isTRUE(input$visual_pca_scale),
+        x_component = input$visual_pca_x_component %||% current$x_component,
+        y_component = input$visual_pca_y_component %||% current$y_component,
+        color_field = input$visual_pca_color %||% current$color_field,
+        shape_field = input$visual_pca_shape %||% current$shape_field,
+        label_field = input$visual_pca_label %||% current$label_field,
+        point_color = input$visual_point_color %||% current$point_color,
+        point_size = input$visual_point_size %||% current$point_size,
+        alpha = input$visual_alpha %||% current$alpha,
+        shape = input$visual_shape %||% current$shape,
+        palette = input$visual_palette %||% current$palette,
+        show_ellipse = if (is.null(input$visual_pca_show_ellipse)) isTRUE(current$show_ellipse) else isTRUE(input$visual_pca_show_ellipse),
+        ellipse_level = input$visual_pca_ellipse_level %||% current$ellipse_level,
+        title = input$visual_title %||% current$title,
+        legend_title = input$visual_legend_title %||% current$legend_title,
+        theme = input$visual_theme %||% current$theme,
+        base_size = input$visual_base_size %||% current$base_size,
+        advanced_preserved = isTRUE(current$advanced_preserved)
+      ))
+    }
     list(
       chart_type = current$chart_type %||% "scatter",
       data_source_id = state$project$active_data_source_id %||% "dataset_example",
@@ -931,6 +1067,14 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
 
   visual_validation <- function(config = visual_config_from_inputs()) {
     validation <- bp_validate_visual_config(config, visual_current_columns())
+    if (identical(config$chart_type %||% "scatter", "pca")) {
+      result <- compute_pca_for_config(config, state$project)
+      if (!isTRUE(result$ok)) {
+        validation$valid <- FALSE
+        validation$errors <- unique(c(validation$errors, result$error %||% "PCA 计算失败。"))
+      }
+      return(validation)
+    }
     source <- visual_source()
     if (is.null(source) || identical(source$status, "relink_required") || isTRUE(source$relink_required)) {
       validation$valid <- FALSE
@@ -955,6 +1099,77 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     }, 0.75)
     session$sendCustomMessage("bp_visual_chart_type", list(value = config$chart_type))
     sources <- project$data_sources %||% list(bp_example_data_source())
+    if (identical(config$chart_type, "pca")) {
+      input_sources <- Filter(function(source) !isTRUE(source$derived), sources)
+      source_values <- vapply(input_sources, function(source) source$id %||% "", character(1))
+      source_labels <- vapply(input_sources, function(source) paste0(
+        source$name %||% "data", " · ", toupper(source$source_type %||% "DATA"), " · ",
+        if (identical(source$status, "relink_required") || isTRUE(source$relink_required)) "需要重新链接" else "可用"
+      ), character(1))
+      keep <- nzchar(source_values)
+      input_choices <- stats::setNames(source_values[keep], source_labels[keep])
+      shiny::updateSelectInput(session, "visual_pca_expression_source", choices = input_choices, selected = config$expression_source_id)
+      shiny::updateSelectInput(
+        session, "visual_pca_metadata_source",
+        choices = c("不使用样本信息" = "", input_choices),
+        selected = config$metadata_source_id
+      )
+      shiny::updateSelectInput(session, "visual_pca_orientation", selected = config$expression_orientation)
+      shiny::updateSelectInput(session, "visual_pca_unmatched_policy", selected = config$unmatched_sample_policy)
+
+      expression_data <- pca_source_data(config$expression_source_id, project)
+      expression_columns <- if (is.data.frame(expression_data) || is.matrix(expression_data)) colnames(expression_data) %||% character() else character()
+      expression_choices <- stats::setNames(c("", expression_columns), c("自动 / 行名", expression_columns))
+      shiny::updateSelectizeInput(session, "visual_pca_feature_id_field", choices = expression_choices, selected = config$feature_id_field, server = TRUE)
+      shiny::updateSelectizeInput(session, "visual_pca_expression_sample_id_field", choices = expression_choices, selected = config$expression_sample_id_field, server = TRUE)
+
+      metadata_data <- if (nzchar(config$metadata_source_id)) pca_source_data(config$metadata_source_id, project) else NULL
+      metadata_columns <- if (is.data.frame(metadata_data) || is.matrix(metadata_data)) colnames(metadata_data) %||% character() else character()
+      metadata_choices <- stats::setNames(c("", metadata_columns), c("自动识别", metadata_columns))
+      shiny::updateSelectizeInput(session, "visual_pca_metadata_id_field", choices = metadata_choices, selected = config$metadata_sample_id_field, server = TRUE)
+
+      result <- compute_pca_for_config(config, project)
+      score_columns <- if (isTRUE(result$ok)) names(result$scores) else character()
+      components <- score_columns[grepl("^PC[0-9]+$", score_columns)]
+      if (!length(components)) components <- c("PC1", "PC2")
+      x_selected <- if (config$x_component %in% components) config$x_component else components[[1]]
+      y_selected <- if (config$y_component %in% components) config$y_component else components[[min(2L, length(components))]]
+      shiny::updateSelectInput(session, "visual_pca_x_component", choices = components, selected = x_selected)
+      shiny::updateSelectInput(session, "visual_pca_y_component", choices = components, selected = y_selected)
+      mapped_columns <- setdiff(score_columns, components)
+      mapped_choices <- stats::setNames(c("", mapped_columns), c("不选择", mapped_columns))
+      shiny::updateSelectizeInput(session, "visual_pca_color", choices = mapped_choices, selected = config$color_field, server = TRUE)
+      shiny::updateSelectizeInput(session, "visual_pca_shape", choices = mapped_choices, selected = config$shape_field, server = TRUE)
+      shiny::updateSelectizeInput(session, "visual_pca_label", choices = mapped_choices, selected = config$label_field, server = TRUE)
+
+      feature_selected <- if (identical(config$variable_feature_count, "all")) {
+        "all"
+      } else if (as.character(config$variable_feature_count) %in% c("500", "1000", "2000")) {
+        as.character(config$variable_feature_count)
+      } else {
+        "custom"
+      }
+      shiny::updateSelectInput(session, "visual_pca_transform", selected = config$transform)
+      shiny::updateSelectInput(session, "visual_pca_feature_count", selected = feature_selected)
+      shiny::updateNumericInput(session, "visual_pca_custom_feature_count", value = config$custom_feature_count)
+      shiny::updateSelectInput(session, "visual_pca_missing_policy", selected = config$missing_value_policy)
+      shiny::updateCheckboxInput(session, "visual_pca_remove_zero_variance", value = isTRUE(config$remove_zero_variance))
+      shiny::updateCheckboxInput(session, "visual_pca_center", value = isTRUE(config$center))
+      shiny::updateCheckboxInput(session, "visual_pca_scale", value = isTRUE(config$scale))
+      shiny::updateCheckboxInput(session, "visual_pca_show_ellipse", value = isTRUE(config$show_ellipse))
+      shiny::updateNumericInput(session, "visual_pca_ellipse_level", value = config$ellipse_level)
+      shiny::updateTextInput(session, "visual_point_color", value = config$point_color)
+      shiny::updateNumericInput(session, "visual_point_size", value = config$point_size)
+      shiny::updateNumericInput(session, "visual_alpha", value = config$alpha)
+      shiny::updateSelectInput(session, "visual_shape", selected = config$shape)
+      shiny::updateSelectInput(session, "visual_palette", selected = config$palette)
+      shiny::updateSelectInput(session, "visual_theme", selected = config$theme)
+      shiny::updateNumericInput(session, "visual_base_size", value = config$base_size)
+      shiny::updateTextInput(session, "visual_title", value = config$title)
+      shiny::updateTextInput(session, "visual_legend_title", value = config$legend_title)
+      later::later(function() state$visual_syncing <- FALSE, 0.35)
+      return(invisible(config))
+    }
     source_values <- vapply(sources, function(source) source$id %||% "", character(1))
     source_labels <- vapply(sources, function(source) paste0(
       source$name %||% "data", " · ", toupper(source$source_type %||% "DATA"), " · ",
@@ -1114,6 +1329,64 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   })
   shiny::outputOptions(output, "visual_active_data_preview", suspendWhenHidden = FALSE)
 
+  output$visual_pca_link_diagnostics <- shiny::renderUI({
+    if (!identical(bp_visual_chart_type(state$project), "pca")) return(NULL)
+    result <- pca_result()
+    if (is.null(result)) return(NULL)
+    if (!isTRUE(result$ok)) {
+      return(htmltools::tags$div(
+        class = "bp-pca-diagnostics is-error",
+        htmltools::tags$strong("PCA 数据检查未通过"),
+        result$error %||% "无法计算 PCA。"
+      ))
+    }
+    diagnostics <- result$diagnostics %||% list()
+    expression_only <- diagnostics$expression_only %||% character()
+    metadata_only <- diagnostics$metadata_only %||% character()
+    has_warning <- length(expression_only) || length(metadata_only) || length(result$warnings %||% character())
+    htmltools::tags$div(
+      class = paste("bp-pca-diagnostics", if (has_warning) "is-warning"),
+      htmltools::tags$strong("样本关联检查通过"),
+      htmltools::tags$div(paste0(
+        "表达矩阵样本：", diagnostics$expression_samples %||% nrow(result$scores),
+        if ((diagnostics$metadata_samples %||% 0L) > 0L) paste0(" · 样本信息：", diagnostics$metadata_samples, " · 匹配：", diagnostics$matched_samples) else " · 未使用样本信息"
+      )),
+      if (length(expression_only)) htmltools::tags$div(paste0("仅表达矩阵：", paste(head(expression_only, 8L), collapse = "、"))),
+      if (length(metadata_only)) htmltools::tags$div(paste0("仅样本信息：", paste(head(metadata_only, 8L), collapse = "、"))),
+      lapply(result$warnings %||% character(), htmltools::tags$div)
+    )
+  })
+
+  output$visual_pca_result_summary <- shiny::renderUI({
+    if (!identical(bp_visual_chart_type(state$project), "pca")) return(NULL)
+    result <- pca_result()
+    if (is.null(result) || !isTRUE(result$ok)) return(NULL)
+    variance <- result$explained_variance %||% numeric()
+    htmltools::tagList(
+      htmltools::tags$div(
+        class = "bp-pca-result-summary",
+        htmltools::tags$strong("PCA 结果"),
+        htmltools::tags$div(paste0(
+          nrow(result$scores), " 个样本 · ", result$selected_feature_count, " 个特征 · ",
+          if (identical(result$orientation, "genes_by_samples")) "基因 × 样本" else "样本 × 特征",
+          " · 转换：", result$transform_applied
+        )),
+        htmltools::tags$div(paste0(
+          "PC1：", sprintf("%.1f%%", variance[["PC1"]] %||% NA_real_),
+          if ("PC2" %in% names(variance)) paste0(" · PC2：", sprintf("%.1f%%", variance[["PC2"]])) else ""
+        )),
+        if ((result$zero_variance_removed %||% 0L) > 0L) htmltools::tags$div(paste0("已移除 ", result$zero_variance_removed, " 个零方差特征。"))
+      ),
+      htmltools::tags$details(
+        class = "bp-visual-data-preview bp-pca-score-preview",
+        htmltools::tags$summary("预览 PCA 得分（前 12 行 · 全部列）"),
+        bp_data_preview_table(result$scores, rows = 12L, columns = ncol(result$scores), row_numbers = TRUE)
+      )
+    )
+  })
+  shiny::outputOptions(output, "visual_pca_link_diagnostics", suspendWhenHidden = FALSE)
+  shiny::outputOptions(output, "visual_pca_result_summary", suspendWhenHidden = FALSE)
+
   output$visual_field_recommendation <- shiny::renderUI({
     source <- visual_source(state$project)
     if (is.null(source)) return(NULL)
@@ -1223,7 +1496,8 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
             htmltools::tags$div(
               htmltools::tags$strong(source$name),
               if (is_active) htmltools::tags$span(class = "bp-active-source-label", "Active plot data"),
-              if (isTRUE(source$example)) htmltools::tags$span(class = "bp-example-source-label", "Example")
+              if (isTRUE(source$example)) htmltools::tags$span(class = "bp-example-source-label", "Example"),
+              if (isTRUE(source$derived)) htmltools::tags$span(class = "bp-example-source-label", "Derived · read only")
             ),
             htmltools::tags$p(paste0(
               toupper(source$source_type %||% "data"), " · ", format(source$rows %||% 0L, big.mark = ","), " rows × ", source$columns %||% 0L, " columns",
@@ -1234,10 +1508,10 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
           htmltools::tags$div(
             class = "bp-data-source-card-actions",
             action_button(source, "preview", "Preview", disabled = !ready),
-            action_button(source, "map", if (is_active) "Remap" else "Use in plot", disabled = !ready),
-            if (!isTRUE(source$example)) action_button(source, "rename", "Rename"),
-            if (!ready && !isTRUE(source$example)) action_button(source, "relink", "Relink"),
-            if (!isTRUE(source$example)) action_button(source, "remove", "Remove", disabled = is_active, danger = TRUE)
+            if (!isTRUE(source$derived)) action_button(source, "map", if (is_active) "Remap" else "Use in plot", disabled = !ready),
+            if (!isTRUE(source$example) && !isTRUE(source$derived)) action_button(source, "rename", "Rename"),
+            if (!ready && !isTRUE(source$example) && !isTRUE(source$derived)) action_button(source, "relink", "Relink"),
+            if (!isTRUE(source$example) && !isTRUE(source$derived)) action_button(source, "remove", "Remove", disabled = is_active, danger = TRUE)
           )
         )
       })
@@ -1724,6 +1998,30 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     input$raw_expression_value %||% state$expression_edit$value %||% ""
   })
 
+  output$analysis_code_view <- shiny::renderUI({
+    if (!identical(bp_visual_chart_type(state$project), "pca")) return(NULL)
+    code <- tryCatch(bp_generate_pca_analysis_code(state$project), error = identity)
+    if (inherits(code, "error")) {
+      return(htmltools::tags$div(class = "bp-code-error", bp_icon("warning", 20), conditionMessage(code)))
+    }
+    lines <- strsplit(code, "\n", fixed = TRUE)[[1]]
+    htmltools::tags$details(
+      class = "bp-analysis-code",
+      open = "open",
+      htmltools::tags$summary(paste0("Generated analysis R · ", length(lines), " lines")),
+      htmltools::tags$div(
+        class = "bp-code-editor",
+        lapply(seq_along(lines), function(index) {
+          htmltools::tags$div(
+            class = "bp-code-line",
+            htmltools::tags$span(class = "bp-line-number", index),
+            htmltools::tags$code(htmltools::HTML(bp_highlight_r_line(lines[[index]])))
+          )
+        })
+      )
+    )
+  })
+
   output$code_view <- shiny::renderUI({
     lines <- tryCatch(bp_generate_lines(state$project, registry), error = identity)
     if (inherits(lines, "error")) {
@@ -1746,6 +2044,10 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
 
   output$code_line_count <- shiny::renderUI({
     count <- length(state$project$modules %||% list())
+    if (identical(bp_visual_chart_type(state$project), "pca")) {
+      analysis <- tryCatch(bp_generate_pca_analysis_code(state$project), error = function(error) "")
+      if (nzchar(analysis)) count <- count + length(strsplit(analysis, "\n", fixed = TRUE)[[1]])
+    }
     htmltools::tags$span(class = "bp-line-count", paste(count, if (count == 1L) "line" else "lines"))
   })
 
@@ -1954,12 +2256,14 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
 
   shiny::observeEvent(input$visual_data_source, {
     if (isTRUE(state$visual_syncing)) return()
+    if (identical(bp_visual_chart_type(state$project), "pca")) return()
     source_id <- input$visual_data_source %||% ""
     current_id <- state$project$active_data_source_id %||% "dataset_example"
     if (!nzchar(source_id) || identical(source_id, current_id)) return()
     sources <- Filter(function(source) identical(source$id, source_id), state$project$data_sources %||% list())
     if (!length(sources)) return()
     source <- sources[[1]]
+    if (isTRUE(source$readonly) && !identical(action, "preview")) return()
     result <- tryCatch(switch_registered_data_source(state$project, source), error = identity)
     if (inherits(result, "error")) {
       state$visual_syncing <- TRUE
@@ -2001,15 +2305,34 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   }
 
   switch_visual_chart <- function(chart_type) {
-    chart_type <- if (chart_type %in% c("scatter", "volcano", "boxplot")) chart_type else "scatter"
+    chart_type <- if (chart_type %in% c("scatter", "volcano", "boxplot", "pca")) chart_type else "scatter"
     if (identical(bp_visual_chart_type(state$project), chart_type)) {
       sync_visual_inputs(state$project, bp_visual_config_from_project(state$project))
       return()
     }
-    source <- visual_source(state$project)
-    if (is.null(source)) return()
-    data <- if (isTRUE(source$example)) bp_default_environment()$df else state$data_objects[[source$id]]
-    recommendation <- visual_recommendation_for(chart_type, source, data)
+    if (identical(chart_type, "pca")) {
+      config <- bp_normalize_pca_config(state$project$visual_config$pca %||% bp_pca_defaults(state$project), state$project)
+      active <- visual_source(state$project)
+      if (!nzchar(config$expression_source_id %||% "") || isTRUE(bp_pca_source(state$project, config$expression_source_id)$derived)) {
+        config$expression_source_id <- if (!is.null(active) && !isTRUE(active$derived)) active$id else "dataset_example"
+      }
+      result <- bp_apply_visual_pca_config(state$project, config, registry)
+      if (state$project$name %in% c("Untitled scatter plot", "Untitled volcano plot", "Untitled boxplot")) {
+        result$project$name <- "Untitled PCA plot"
+        shiny::updateTextInput(session, "project_name", value = result$project$name)
+      }
+      commit(result$project, result$root_instance_id, origin = "visual_source")
+      sync_visual_inputs(result$project, result$config)
+      computed <- compute_pca_for_config(result$config, result$project)
+      if (!isTRUE(computed$ok)) {
+        shiny::showNotification(computed$error %||% "PCA 数据配置需要调整。", type = "warning", duration = 10)
+      } else {
+        cache_pca_result(computed, result$project)
+        shiny::showNotification("已切换到 PCA 图；请检查样本关联和预处理设置。", type = "message")
+        if (isTRUE(input$visual_auto_preview)) start_preview()
+      }
+      return()
+    }
     config <- state$project$visual_config[[chart_type]] %||% switch(
       chart_type,
       volcano = bp_visual_volcano_defaults(state$project),
@@ -2018,7 +2341,14 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     )
     config <- bp_visual_repair_cross_chart_labels(config, chart_type, state$project)
     config$chart_type <- chart_type
-    config$data_source_id <- state$project$active_data_source_id %||% "dataset_example"
+    active <- visual_source(state$project)
+    target_source_id <- if (!is.null(active) && isTRUE(active$derived)) config$data_source_id %||% "dataset_example" else state$project$active_data_source_id %||% "dataset_example"
+    source <- bp_pca_source(state$project, target_source_id)
+    if (is.null(source) || isTRUE(source$derived)) source <- bp_example_data_source()
+    data <- if (isTRUE(source$example)) bp_default_environment()$df else state$data_objects[[source$id]]
+    if (is.null(data)) return()
+    recommendation <- visual_recommendation_for(chart_type, source, data)
+    config$data_source_id <- source$id
     columns <- bp_data_source_columns(source, data)
     if (!nzchar(config$x_field %||% "") || !config$x_field %in% columns ||
         !nzchar(config$y_field %||% "") || !config$y_field %in% columns) {
@@ -2049,6 +2379,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   shiny::observeEvent(input$visual_chart_scatter, switch_visual_chart("scatter"), ignoreInit = TRUE)
   shiny::observeEvent(input$visual_chart_volcano, switch_visual_chart("volcano"), ignoreInit = TRUE)
   shiny::observeEvent(input$visual_chart_boxplot, switch_visual_chart("boxplot"), ignoreInit = TRUE)
+  shiny::observeEvent(input$visual_chart_pca, switch_visual_chart("pca"), ignoreInit = TRUE)
 
   shiny::observeEvent(input$visual_recommend_fields, {
     source <- visual_source(state$project)
@@ -2085,11 +2416,21 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       chart_type,
       volcano = bp_visual_volcano_defaults(project),
       boxplot = bp_visual_boxplot_defaults(project),
+      pca = bp_pca_defaults(project),
       bp_visual_scatter_config_from_project(project)
     )
     config$chart_type <- chart_type
-    config <- apply_visual_recommendation(config, recommendation)
-    config$title <- switch(chart_type, volcano = "Untitled volcano plot", boxplot = "Untitled boxplot", "Untitled scatter plot")
+    if (identical(chart_type, "pca")) {
+      config$expression_source_id <- "dataset_example"
+      config$expression_orientation <- "genes_by_samples"
+      config$feature_id_location <- "column"
+      config$feature_id_field <- "gene"
+      config$transform <- "none"
+      config$variable_feature_count <- "all"
+    } else {
+      config <- apply_visual_recommendation(config, recommendation)
+    }
+    config$title <- switch(chart_type, volcano = "Untitled volcano plot", boxplot = "Untitled boxplot", pca = "Untitled PCA plot", "Untitled scatter plot")
     project$name <- config$title
     result <- bp_apply_visual_config(project, config, registry)
     commit(result$project, result$root_instance_id, origin = "visual_source")
@@ -2138,7 +2479,8 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       state$visual_input_error <- "invalid_color"
       return()
     }
-    if (!grepl("^#[0-9A-Fa-f]{6}$", trimws(raw_config$reference_line_color %||% ""))) {
+    is_pca <- identical(raw_config$chart_type, "pca")
+    if (!is_pca && !grepl("^#[0-9A-Fa-f]{6}$", trimws(raw_config$reference_line_color %||% ""))) {
       state$visual_input_error <- "invalid_reference_color"
       return()
     }
@@ -2152,26 +2494,42 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       state$visual_input_error <- "invalid_box_jitter_color"
       return()
     }
-    vertical_lines <- bp_visual_parse_reference_values(raw_config$vertical_reference_lines)
-    horizontal_lines <- bp_visual_parse_reference_values(raw_config$horizontal_reference_lines)
-    if (!isTRUE(vertical_lines$valid) || !isTRUE(horizontal_lines$valid)) {
-      state$visual_input_error <- "invalid_reference_lines"
-      return()
+    if (!is_pca) {
+      vertical_lines <- bp_visual_parse_reference_values(raw_config$vertical_reference_lines)
+      horizontal_lines <- bp_visual_parse_reference_values(raw_config$horizontal_reference_lines)
+      if (!isTRUE(vertical_lines$valid) || !isTRUE(horizontal_lines$valid)) {
+        state$visual_input_error <- "invalid_reference_lines"
+        return()
+      }
     }
     state$visual_input_error <- NULL
     current <- visual_active_config(state$project)
     incoming <- visual_normalize_config(raw_config, state$project)
     incoming$advanced_preserved <- isTRUE(current$advanced_preserved)
     current <- visual_normalize_config(current, state$project)
+    prepared <- if (is_pca) prepare_pca_config(incoming, state$project) else NULL
+    if (is_pca) incoming <- prepared$config
     if (identical(incoming, current)) return()
-    validation <- bp_validate_visual_config(incoming, visual_current_columns())
+    validation <- if (is_pca && isTRUE(prepared$result$ok)) {
+      bp_validate_visual_config(incoming, names(prepared$result$scores))
+    } else if (is_pca) {
+      list(valid = FALSE, errors = prepared$result$error %||% "PCA 计算失败。")
+    } else {
+      bp_validate_visual_config(incoming, visual_current_columns())
+    }
     result <- bp_apply_visual_config(state$project, incoming, registry)
     commit(result$project, result$root_instance_id, origin = "visual_config")
+    if (is_pca && isTRUE(prepared$result$ok)) cache_pca_result(prepared$result, result$project)
+    if (is_pca && length(prepared$cleared)) {
+      shiny::showNotification(paste0("数据源变化后清除了不可用的 PCA 映射：", paste(prepared$cleared, collapse = "、"), "。"), type = "warning")
+    }
     if (isTRUE(input$visual_auto_preview) && isTRUE(validation$valid)) start_preview()
   }, ignoreInit = TRUE)
 
   shiny::observeEvent(input$visual_run_preview, {
     config <- visual_config_from_inputs()
+    prepared <- if (identical(config$chart_type %||% "scatter", "pca")) prepare_pca_config(config, state$project) else NULL
+    if (!is.null(prepared)) config <- prepared$config
     validation <- visual_validation(config)
     if (!isTRUE(validation$valid)) {
       shiny::showNotification(paste(validation$errors, collapse = " "), type = "warning", duration = 8)
@@ -2183,6 +2541,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       result <- bp_apply_visual_config(state$project, normalized, registry)
       commit(result$project, result$root_instance_id, origin = "visual_config")
     }
+    if (!is.null(prepared) && isTRUE(prepared$result$ok)) cache_pca_result(prepared$result, state$project)
     start_preview()
   }, ignoreInit = TRUE)
 
@@ -2579,6 +2938,19 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   )
   output$download_r <- make_r_download()
   output$download_r_secondary <- make_r_download()
+
+  make_pca_csv_download <- function(kind) shiny::downloadHandler(
+    filename = function() paste0(gsub("[^A-Za-z0-9_-]+", "-", state$project$name), "-pca-", kind, ".csv"),
+    content = function(file) {
+      result <- shiny::isolate(compute_pca_for_config(bp_pca_config_from_project(state$project), state$project))
+      if (!isTRUE(result$ok)) stop(result$error %||% "PCA 计算失败。", call. = FALSE)
+      utils::write.csv(result[[kind]], file, row.names = FALSE, fileEncoding = "UTF-8")
+    }
+  )
+  output$download_pca_scores <- make_pca_csv_download("scores")
+  output$download_pca_loadings <- make_pca_csv_download("loadings")
+  shiny::outputOptions(output, "download_pca_scores", suspendWhenHidden = FALSE)
+  shiny::outputOptions(output, "download_pca_loadings", suspendWhenHidden = FALSE)
 
   shiny::observeEvent(input$run_preview, start_preview(), ignoreInit = TRUE)
 

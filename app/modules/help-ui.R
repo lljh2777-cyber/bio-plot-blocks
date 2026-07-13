@@ -168,8 +168,12 @@ bp_help_visual_mode_intro <- function(language) {
         text = if (chinese) "两个模式读写同一份语义化项目状态，切换模式不会复制或丢失图形设置。" else "Both modes read and write the same semantic project state, so switching never duplicates or discards plot settings."
       ),
       list(
-        title = if (chinese) "散点图、火山图与箱线图向导" else "Scatter, volcano, and boxplot builders",
-        text = if (chinese) "支持散点图常用映射和样式；火山图可识别 logFC 与 PValue/FDR 字段并生成 Up / NS / Down 分组；箱线图使用分组字段和数值字段比较组间分布，并支持填充、边框和离群点设置。" else "Scatter plots support common mappings and styles. Volcano plots recognize logFC and PValue/FDR fields and generate Up / NS / Down groups. Boxplots compare grouped numeric distributions with fill, border, and outlier controls."
+        title = if (chinese) "散点图、火山图、箱线图与 PCA" else "Scatter, volcano, boxplot, and PCA builders",
+        text = if (chinese) "除常用散点图、火山图和箱线图外，PCA 支持表达矩阵与可选样本信息表，按样本 ID 关联，配置矩阵方向、转换、高变特征、中心化/标准化、主成分、分组与置信椭圆。" else "Alongside scatter, volcano, and boxplot builders, PCA accepts an expression matrix plus optional sample metadata, joins by sample ID, and configures orientation, transformation, variable features, centering/scaling, components, grouping, and confidence ellipses."
+      ),
+      list(
+        title = if (chinese) "可复现的 PCA 结果" else "Reproducible PCA outputs",
+        text = if (chinese) "PCA 得分与载荷作为只读派生数据提供预览和 CSV 导出；高级模式分别显示分析 R 与绘图 R，导出的脚本包含 stats::prcomp() 全流程。" else "PCA scores and loadings are exposed as read-only derived data for preview and CSV export. Advanced mode separates analysis R from plot R, while the exported script includes the complete stats::prcomp() workflow."
       ),
       list(
         title = if (chinese) "自动预览" else "Automatic preview",
@@ -202,7 +206,7 @@ bp_help_document_zh <- function() {
       )),
       bp_help_note(
         "产品边界",
-        "BioPlotBlocks 是 R/ggplot2 代码编排器，不负责差异分析、数据清洗或其他生物信息学计算，也不会静默修改你的数据或优化代码。"
+        "BioPlotBlocks 是 R/ggplot2 代码编排器；除明确提供的 PCA 工作流外，不负责差异分析、数据清洗或其他生物信息学计算，也不会静默修改你的原始数据。"
       )
     ),
     bp_help_section(
@@ -355,7 +359,7 @@ bp_help_document_en <- function() {
         list(title = "Generated R", text = "See deterministic R code generated from module state and linked to selection."),
         list(title = "Status bar", text = "Review errors, warnings, semantic fidelity, schema, module count, and runtime.")
       )),
-      bp_help_note("Product boundary", "BioPlotBlocks composes R/ggplot2 code. It does not perform differential analysis, data cleaning, or other bioinformatics computations, and it never silently changes your data or optimizes your code.")
+      bp_help_note("Product boundary", "BioPlotBlocks composes R/ggplot2 code. Apart from the explicit PCA workflow, it does not perform differential analysis, data cleaning, or other bioinformatics computations, and it never silently changes source data.")
     ),
     bp_help_section(
       "en", "quickstart", "02", "Quick start",

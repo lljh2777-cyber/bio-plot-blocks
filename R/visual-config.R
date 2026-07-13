@@ -78,19 +78,20 @@ bp_visual_chart_defaults <- function(chart_type, project = NULL) {
     chart_type,
     volcano = bp_visual_volcano_defaults(project),
     boxplot = bp_visual_boxplot_defaults(project),
+    pca = bp_pca_defaults(project),
     bp_visual_scatter_defaults(project)
   )
 }
 
 bp_visual_repair_cross_chart_labels <- function(config, chart_type, project = NULL) {
-  chart_type <- if (chart_type %in% c("scatter", "volcano", "boxplot")) chart_type else "scatter"
+  chart_type <- if (chart_type %in% c("scatter", "volcano", "boxplot", "pca")) chart_type else "scatter"
   config <- config %||% bp_visual_chart_defaults(chart_type, project)
   fields <- c("title", "x_label", "y_label", "legend_title")
   signature <- function(value) {
     vapply(fields, function(field) bp_visual_scalar_character(value[[field]], ""), character(1))
   }
   current <- signature(config)
-  other_types <- setdiff(c("scatter", "volcano", "boxplot"), chart_type)
+  other_types <- setdiff(c("scatter", "volcano", "boxplot", "pca"), chart_type)
   inherited <- any(vapply(other_types, function(other_type) {
     other <- signature(bp_visual_chart_defaults(other_type, project))
     any(nzchar(other)) && identical(current, other)
@@ -588,7 +589,8 @@ bp_apply_visual_scatter_config <- function(project, config, registry = NULL) {
   project$modules <- Filter(function(instance) {
     !isTRUE(instance$visual_managed) || !instance$visual_role %in% c(
       "volcano_fc_threshold", "volcano_significance_threshold",
-      "visual_boxplot_layer", "visual_boxplot_jitter", "visual_boxplot_fill_scale"
+      "visual_boxplot_layer", "visual_boxplot_jitter", "visual_boxplot_fill_scale",
+      "visual_pca_ellipse"
     )
   }, project$modules %||% list())
   modules <- project$modules %||% list()
@@ -807,7 +809,7 @@ bp_validate_visual_scatter_config <- function(config, columns = character()) {
 
 bp_visual_chart_type <- function(project) {
   chart_type <- project$visual_config$active_chart_type %||% "scatter"
-  if (chart_type %in% c("scatter", "volcano", "boxplot")) chart_type else "scatter"
+  if (chart_type %in% c("scatter", "volcano", "boxplot", "pca")) chart_type else "scatter"
 }
 
 bp_visual_volcano_field_is_transformed <- function(field) {
@@ -952,6 +954,8 @@ bp_visual_config_from_project <- function(project) {
     bp_visual_volcano_config_from_project(project)
   } else if (identical(bp_visual_chart_type(project), "boxplot")) {
     bp_visual_boxplot_config_from_project(project)
+  } else if (identical(bp_visual_chart_type(project), "pca")) {
+    bp_pca_config_from_project(project)
   } else {
     bp_visual_scatter_config_from_project(project)
   }
@@ -1245,11 +1249,135 @@ bp_validate_visual_boxplot_config <- function(config, columns = character()) {
   list(valid = !length(errors), errors = unique(errors))
 }
 
+bp_apply_visual_pca_config <- function(project, config, registry = NULL) {
+  registry <- registry %||% bp_load_registry()
+  project <- unserialize(serialize(project, NULL))
+  config <- bp_normalize_pca_config(config, project)
+  stored_scatter <- project$visual_config$scatter %||% bp_visual_scatter_defaults(project)
+  project <- bp_pca_upsert_derived_sources(project, config)
+
+  scatter <- bp_visual_scatter_defaults(project)
+  scatter$data_source_id <- "dataset_pca_scores"
+  scatter$x_field <- config$x_component
+  scatter$y_field <- config$y_component
+  scatter$color_field <- config$color_field
+  scatter$label_field <- config$label_field
+  scatter$point_color <- config$point_color
+  scatter$point_size <- config$point_size
+  scatter$alpha <- config$alpha
+  scatter$shape <- config$shape
+  scatter$palette <- config$palette
+  scatter$trend_line <- "none"
+  scatter$title <- config$title
+  scatter$x_label <- ""
+  scatter$y_label <- ""
+  scatter$legend_title <- config$legend_title
+  scatter$theme <- config$theme
+  scatter$base_size <- config$base_size
+  result <- bp_apply_visual_scatter_config(project, scatter, registry)
+  project <- result$project
+  project$visual_config$scatter <- stored_scatter
+
+  root_index <- bp_visual_first_instance(project, "r.ggplot2.ggplot")
+  root <- project$modules[[root_index]]
+  mapping_argument <- root$arguments$mapping %||% bp_argument(origin = "formal")
+  mapping <- mapping_argument$value
+  if (is.null(mapping) || !identical(bp_value_type(mapping), "RAesMapping")) mapping <- bp_aes_mapping()
+  mappings <- mapping$mappings %||% list()
+  mappings$shape <- bp_visual_mapping_value(config$shape_field)
+  mapping_argument$state <- "explicit"
+  mapping_argument$value <- bp_aes_mapping(mappings)
+  root$arguments$mapping <- mapping_argument
+  root$visual_managed <- TRUE
+  project$modules[[root_index]] <- root
+
+  point_index <- bp_visual_first_instance(project, "r.ggplot2.geom_point", managed_first = FALSE)
+  if (!is.na(point_index) && nzchar(config$shape_field)) project$modules[[point_index]]$arguments$shape$state <- "unset"
+
+  project$modules <- Filter(function(instance) {
+    !identical(instance$visual_role %||% "", "visual_pca_ellipse")
+  }, project$modules %||% list())
+  if (isTRUE(config$show_ellipse) && nzchar(config$color_field)) {
+    ellipse <- bp_instantiate_module("r.ggplot2.stat_ellipse", registry)
+    ellipse$visual_managed <- TRUE
+    ellipse$visual_role <- "visual_pca_ellipse"
+    ellipse$arguments$mapping <- bp_argument(
+      "explicit",
+      bp_aes_mapping(list(group = bp_symbol(config$color_field))),
+      "formal"
+    )
+    ellipse$arguments$level <- bp_argument("explicit", bp_double(config$ellipse_level), "formal")
+    ellipse$arguments$linewidth <- bp_argument("explicit", bp_double(0.7), "dots_aesthetic")
+    ellipse$arguments$na.rm <- bp_argument("explicit", bp_logical(TRUE), "formal")
+    point_index <- bp_visual_first_instance(project, "r.ggplot2.geom_point", managed_first = FALSE)
+    project$modules <- append(project$modules, list(ellipse), after = point_index)
+  }
+
+  labs_index <- bp_visual_first_instance(project, "r.ggplot2.labs")
+  if (!is.na(labs_index)) {
+    labels <- project$modules[[labs_index]]
+    x_component <- encodeString(config$x_component, quote = '"')
+    y_component <- encodeString(config$y_component, quote = '"')
+    labels$arguments$x <- bp_argument(
+      "raw_expression",
+      bp_raw_expression(paste0("sprintf(\"", config$x_component, " (%.1f%%)\", explained_variance[[", x_component, "]])")),
+      "dots_documented"
+    )
+    labels$arguments$y <- bp_argument(
+      "raw_expression",
+      bp_raw_expression(paste0("sprintf(\"", config$y_component, " (%.1f%%)\", explained_variance[[", y_component, "]])")),
+      "dots_documented"
+    )
+    labels <- bp_visual_set_text_argument(labels, "shape", if (nzchar(config$shape_field)) config$legend_title else "", "dots_documented")
+    project$modules[[labs_index]] <- labels
+  }
+
+  root_index <- bp_visual_first_instance(project, "r.ggplot2.ggplot")
+  root <- project$modules[[root_index]]
+  project$mapping_config <- list(
+    dataset_id = "dataset_pca_scores",
+    plot_id = root$instance_id,
+    mapping = bp_mapping_argument_sources(root$arguments$mapping),
+    confirmed_by_user = TRUE
+  )
+  project$active_data_source_id <- "dataset_pca_scores"
+  project$data_reference <- list(
+    strategy = "derived_analysis",
+    source_id = "dataset_pca_scores",
+    symbol = "pca_scores",
+    embedded = FALSE
+  )
+  project$visual_config <- project$visual_config %||% list()
+  project$visual_config$active_chart_type <- "pca"
+  project$visual_config$pca <- config
+  list(project = project, root_instance_id = root$instance_id, config = config)
+}
+
+bp_validate_visual_pca_config <- function(config, columns = character()) {
+  config <- bp_normalize_pca_config(config)
+  errors <- character()
+  if (!nzchar(config$expression_source_id)) errors <- c(errors, "请选择 PCA 表达数据源。")
+  if (!grepl("^PC[0-9]+$", config$x_component)) errors <- c(errors, "请选择有效的横轴主成分。")
+  if (!grepl("^PC[0-9]+$", config$y_component)) errors <- c(errors, "请选择有效的纵轴主成分。")
+  if (identical(config$x_component, config$y_component)) errors <- c(errors, "横轴和纵轴不能使用同一个主成分。")
+  if (length(columns)) {
+    for (name in c("x_component", "y_component", "color_field", "shape_field", "label_field")) {
+      field <- config[[name]]
+      if (nzchar(field) && !field %in% columns) errors <- c(errors, paste0("PCA 得分表中不存在字段 ‘", field, "’。"))
+    }
+  }
+  if (isTRUE(config$show_ellipse) && !nzchar(config$color_field)) errors <- c(errors, "启用分组椭圆前请先选择颜色分组字段。")
+  if (!grepl("^#[0-9A-Fa-f]{6}$", config$point_color)) errors <- c(errors, "PCA 点颜色需使用 6 位十六进制颜色。")
+  list(valid = !length(errors), errors = unique(errors))
+}
+
 bp_apply_visual_config <- function(project, config, registry = NULL) {
   if (identical(config$chart_type %||% "scatter", "volcano")) {
     bp_apply_visual_volcano_config(project, config, registry)
   } else if (identical(config$chart_type %||% "scatter", "boxplot")) {
     bp_apply_visual_boxplot_config(project, config, registry)
+  } else if (identical(config$chart_type %||% "scatter", "pca")) {
+    bp_apply_visual_pca_config(project, config, registry)
   } else {
     bp_apply_visual_scatter_config(project, config, registry)
   }
@@ -1260,6 +1388,8 @@ bp_validate_visual_config <- function(config, columns = character()) {
     bp_validate_visual_volcano_config(config, columns)
   } else if (identical(config$chart_type %||% "scatter", "boxplot")) {
     bp_validate_visual_boxplot_config(config, columns)
+  } else if (identical(config$chart_type %||% "scatter", "pca")) {
+    bp_validate_visual_pca_config(config, columns)
   } else {
     bp_validate_visual_scatter_config(config, columns)
   }

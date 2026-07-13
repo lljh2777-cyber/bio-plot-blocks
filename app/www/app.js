@@ -90,7 +90,7 @@
   }
 
   function setVisualChartType(chartType) {
-    const next = ["scatter", "volcano", "boxplot"].includes(chartType) ? chartType : "scatter";
+    const next = ["scatter", "volcano", "boxplot", "pca"].includes(chartType) ? chartType : "scatter";
     document.body.dataset.visualChartType = next;
     document.querySelectorAll(".bp-visual-chart-card[data-chart-type]").forEach(function (button) {
       const active = button.dataset.chartType === next;
@@ -106,6 +106,16 @@
     document.querySelectorAll(".bp-boxplot-only").forEach(function (element) {
       element.hidden = next !== "boxplot";
     });
+    document.querySelectorAll(".bp-pca-only").forEach(function (element) {
+      element.hidden = next !== "pca";
+    });
+    document.querySelectorAll(".bp-non-pca-only").forEach(function (element) {
+      element.hidden = next === "pca";
+    });
+    if (window.jQuery) {
+      window.jQuery(next === "pca" ? ".bp-non-pca-only" : ".bp-pca-only").trigger("hidden");
+      window.jQuery(next === "pca" ? ".bp-pca-only" : ".bp-non-pca-only").trigger("shown");
+    }
     document.querySelectorAll(".bp-point-only").forEach(function (element) {
       element.hidden = next === "boxplot";
     });
@@ -135,7 +145,9 @@
       ? "VOLCANO BUILDER · 火山图向导"
       : next === "boxplot"
         ? "BOXPLOT BUILDER · 箱线图向导"
-        : "SCATTER BUILDER · 散点图向导";
+        : next === "pca"
+          ? "PCA BUILDER · 主成分分析向导"
+          : "SCATTER BUILDER · 散点图向导";
   }
 
   function updateVisualColorSwatch(input) {

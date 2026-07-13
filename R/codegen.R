@@ -175,17 +175,22 @@ bp_generate_lines <- function(project, registry = NULL) {
 bp_generate_code <- function(project, registry = NULL, include_setup = FALSE) {
   registry <- registry %||% bp_load_registry()
   lines <- bp_generate_lines(project, registry)
-  code <- paste(vapply(lines, `[[`, character(1), "text"), collapse = "\n")
+  plot_code <- paste(vapply(lines, `[[`, character(1), "text"), collapse = "\n")
+  analysis_code <- bp_generate_pca_analysis_code(project)
+  code <- paste(Filter(nzchar, c(analysis_code, plot_code)), collapse = "\n\n")
   if (isTRUE(include_setup) && identical(project$settings$namespace_policy %||% "bare", "bare")) {
-    setup <- "library(ggplot2)"
-    active_id <- project$active_data_source_id %||% "dataset_example"
-    sources <- project$data_sources %||% list()
-    active <- Filter(function(source) identical(source$id, active_id), sources)
-    if (length(active) && !isTRUE(active[[1]]$example)) {
-      source <- active[[1]]
-      setup <- paste(c(setup, bp_data_source_setup_line(source)), collapse = "\n")
+    setup_lines <- "library(ggplot2)"
+    if (identical(project$visual_config$active_chart_type %||% "scatter", "pca")) {
+      setup_lines <- c(setup_lines, bp_pca_setup_lines(project))
+    } else {
+      active_id <- project$active_data_source_id %||% "dataset_example"
+      sources <- project$data_sources %||% list()
+      active <- Filter(function(source) identical(source$id, active_id), sources)
+      if (length(active) && !isTRUE(active[[1]]$example) && !isTRUE(active[[1]]$derived)) {
+        setup_lines <- c(setup_lines, bp_data_source_setup_line(active[[1]]))
+      }
     }
-    code <- paste(setup, code, sep = "\n\n")
+    code <- paste(paste(setup_lines, collapse = "\n"), code, sep = "\n\n")
   }
   code
 }

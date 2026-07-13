@@ -187,54 +187,79 @@ bp_workspace_ui <- function(root) {
               id = "visual-section-source",
               class = "bp-visual-config-section",
               bp_visual_section_header("01", "选择数据源", "选择已注册且可用的数据；数据预览和字段候选会自动同步。"),
-              shiny::selectInput("visual_data_source", label = "数据表", choices = c("正在读取…" = ""), selectize = FALSE, width = "100%"),
-              shiny::uiOutput("visual_data_profile"),
               htmltools::tags$div(
-                id = "visual_data_preview",
-                class = "bp-visual-data-preview",
-                htmltools::tags$input(
-                  id = "visual_data_preview_toggle",
-                  class = "bp-visual-data-preview-checkbox",
-                  type = "checkbox",
-                  `aria-controls` = "visual_data_preview_content",
-                  `aria-label` = "预览数据：前 30 行和全部列"
-                ),
-                htmltools::tags$label(
-                  `for` = "visual_data_preview_toggle",
-                  class = "bp-visual-data-preview-toggle",
-                  htmltools::tags$span(class = "bp-visual-data-preview-title", bp_icon("table", 15), "预览数据"),
-                  htmltools::tags$span(class = "bp-visual-data-preview-hint", "前 30 行 · 全部列"),
-                  htmltools::tags$span(class = "bp-visual-data-preview-chevron", "⌄")
+                class = "bp-non-pca-only",
+                shiny::selectInput("visual_data_source", label = "数据表", choices = c("正在读取…" = ""), selectize = FALSE, width = "100%"),
+                shiny::uiOutput("visual_data_profile"),
+                htmltools::tags$div(
+                  id = "visual_data_preview",
+                  class = "bp-visual-data-preview",
+                  htmltools::tags$input(
+                    id = "visual_data_preview_toggle",
+                    class = "bp-visual-data-preview-checkbox",
+                    type = "checkbox",
+                    `aria-controls` = "visual_data_preview_content",
+                    `aria-label` = "预览数据：前 30 行和全部列"
+                  ),
+                  htmltools::tags$label(
+                    `for` = "visual_data_preview_toggle",
+                    class = "bp-visual-data-preview-toggle",
+                    htmltools::tags$span(class = "bp-visual-data-preview-title", bp_icon("table", 15), "预览数据"),
+                    htmltools::tags$span(class = "bp-visual-data-preview-hint", "前 30 行 · 全部列"),
+                    htmltools::tags$span(class = "bp-visual-data-preview-chevron", "⌄")
+                  ),
+                  htmltools::tags$div(
+                    id = "visual_data_preview_content",
+                    class = "bp-visual-data-preview-content",
+                    shiny::uiOutput("visual_active_data_preview")
+                  )
+                )
+              ),
+              htmltools::tags$div(
+                class = "bp-pca-only bp-pca-source-card",
+                hidden = "hidden",
+                shiny::selectInput("visual_pca_expression_source", "表达矩阵 *", choices = c("正在读取…" = ""), selectize = FALSE, width = "100%"),
+                shiny::selectInput(
+                  "visual_pca_orientation", "矩阵方向 *",
+                  choices = c("自动识别" = "auto", "基因 × 样本" = "genes_by_samples", "样本 × 特征" = "samples_by_features"),
+                  width = "100%"
                 ),
                 htmltools::tags$div(
-                  id = "visual_data_preview_content",
-                  class = "bp-visual-data-preview-content",
-                  shiny::uiOutput("visual_active_data_preview")
-                )
+                  class = "bp-pca-source-grid",
+                  shiny::selectizeInput("visual_pca_feature_id_field", "特征 ID 列", choices = NULL, options = list(placeholder = "自动 / 行名"), width = "100%"),
+                  shiny::selectizeInput("visual_pca_expression_sample_id_field", "表达表样本 ID 列", choices = NULL, options = list(placeholder = "自动 / 列名或行名"), width = "100%")
+                ),
+                shiny::selectInput("visual_pca_metadata_source", "样本信息表（可选）", choices = c("不使用样本信息" = ""), selectize = FALSE, width = "100%"),
+                htmltools::tags$div(
+                  class = "bp-pca-source-grid",
+                  shiny::selectizeInput("visual_pca_metadata_id_field", "样本信息 ID 列", choices = NULL, options = list(placeholder = "自动识别 Sample / ID"), width = "100%"),
+                  shiny::selectInput("visual_pca_unmatched_policy", "不匹配样本", choices = c("严格：必须完全匹配" = "strict", "仅使用交集" = "matched_only"), width = "100%")
+                ),
+                shiny::uiOutput("visual_pca_link_diagnostics")
               )
             ),
             htmltools::tags$section(
               id = "visual-section-chart",
               class = "bp-visual-config-section",
-              bp_visual_section_header("02", "选择图表类型", "当前支持散点图、火山图和箱线图；PCA 图将在后续阶段接入。"),
+              bp_visual_section_header("02", "选择图表类型", "支持散点图、火山图、箱线图和基于表达矩阵的 PCA 图。"),
               htmltools::tags$div(
                 class = "bp-visual-chart-grid",
                 bp_visual_chart_card("visual_chart_scatter", "scatter", "散点图", "比较两个连续变量", "point", "至少 2 个数值型字段（X、Y）", active = TRUE),
                 bp_visual_chart_card("visual_chart_volcano", "volcano", "火山图", "差异表达结果", "plot", "倍数变化列 + P 值或 FDR 列"),
                 bp_visual_chart_card("visual_chart_boxplot", "boxplot", "箱线图", "比较组间分布", "boxplot", "1 个分组字段 + 1 个数值字段"),
-                bp_visual_chart_card("visual_chart_pca", "pca", "PCA 图", "样本降维概览", "mapping", "样本 × 特征的数值矩阵", disabled = TRUE)
+                bp_visual_chart_card("visual_chart_pca", "pca", "PCA 图", "样本降维概览", "mapping", "表达矩阵；可选样本分组信息")
               )
             ),
             htmltools::tags$section(
               id = "visual-section-fields",
               class = "bp-visual-config-section",
               bp_visual_section_header(
-                "03", "映射数据字段", "散点图需要 X/Y；火山图需要倍数变化和显著性字段；箱线图需要分组和数值字段。",
+                "03", "映射数据字段", "散点图需要 X/Y；火山图需要倍数变化和显著性字段；箱线图需要分组和数值字段；PCA 可选择主成分、颜色、形状和标签。",
                 shiny::actionButton("visual_recommend_fields", "智能推荐", icon = shiny::icon("wand-magic-sparkles"), class = "bp-link-button")
               ),
-              shiny::uiOutput("visual_field_recommendation"),
+              htmltools::tags$div(class = "bp-non-pca-only", shiny::uiOutput("visual_field_recommendation")),
               htmltools::tags$div(
-                class = "bp-visual-field-grid",
+                class = "bp-visual-field-grid bp-non-pca-only",
                 htmltools::tags$div(class = "bp-visual-field-control", `data-visual-field` = "x", shiny::selectizeInput("visual_x", "X 轴字段 *", choices = NULL, options = list(placeholder = "选择数值列"), width = "100%")),
                 htmltools::tags$div(class = "bp-visual-field-control", `data-visual-field` = "y", shiny::selectizeInput("visual_y", "Y 轴字段 *", choices = NULL, options = list(placeholder = "选择数值列"), width = "100%")),
                 htmltools::tags$div(class = "bp-visual-field-control", `data-visual-field` = "color", shiny::selectizeInput("visual_color", "颜色/状态分组", choices = NULL, options = list(placeholder = "不映射颜色"), width = "100%")),
@@ -242,7 +267,7 @@ bp_workspace_ui <- function(root) {
                 htmltools::tags$div(class = "bp-point-only", shiny::selectizeInput("visual_label", "标签字段", choices = NULL, options = list(placeholder = "不显示标签"), width = "100%"))
               ),
               htmltools::tags$div(
-                class = "bp-visual-transform-grid",
+                class = "bp-visual-transform-grid bp-non-pca-only",
                 htmltools::tags$div(class = "bp-non-boxplot-only", shiny::selectInput("visual_x_scale", "X 值转换", choices = c("线性" = "linear", "log10" = "log10", "-log10" = "neg_log10"), width = "100%")),
                 shiny::selectInput("visual_y_scale", "Y 值转换", choices = c("线性" = "linear", "log10" = "log10", "-log10" = "neg_log10"), width = "100%")
               ),
@@ -255,6 +280,36 @@ bp_workspace_ui <- function(root) {
                   class = "bp-volcano-auto-status",
                   shiny::checkboxInput("visual_auto_status", "未选择状态列时，自动创建 Up / NS / Down 分组", value = TRUE)
                 )
+              ),
+              htmltools::tags$div(
+                class = "bp-pca-only bp-pca-fields-card",
+                hidden = "hidden",
+                htmltools::tags$div(
+                  class = "bp-pca-source-grid",
+                  shiny::selectInput("visual_pca_x_component", "横轴主成分 *", choices = c("PC1" = "PC1"), width = "100%"),
+                  shiny::selectInput("visual_pca_y_component", "纵轴主成分 *", choices = c("PC2" = "PC2"), width = "100%")
+                ),
+                htmltools::tags$div(
+                  class = "bp-visual-field-grid",
+                  shiny::selectizeInput("visual_pca_color", "颜色分组", choices = NULL, options = list(placeholder = "不映射颜色"), width = "100%"),
+                  shiny::selectizeInput("visual_pca_shape", "形状分组", choices = NULL, options = list(placeholder = "不映射形状"), width = "100%"),
+                  shiny::selectizeInput("visual_pca_label", "样本标签", choices = NULL, options = list(placeholder = "不显示标签"), width = "100%")
+                ),
+                htmltools::tags$h3(class = "bp-pca-subheading", "预处理"),
+                htmltools::tags$div(
+                  class = "bp-pca-preprocess-grid",
+                  shiny::selectInput("visual_pca_transform", "数据转换", choices = c("自动" = "auto", "不转换" = "none", "log2(x + 1)" = "log2p1"), width = "100%"),
+                  shiny::selectInput("visual_pca_feature_count", "高变特征", choices = c("全部特征" = "all", "前 500" = "500", "前 1000" = "1000", "前 2000" = "2000", "自定义" = "custom"), width = "100%"),
+                  shiny::numericInput("visual_pca_custom_feature_count", "自定义特征数", value = 1000, min = 2, step = 50, width = "100%"),
+                  shiny::selectInput("visual_pca_missing_policy", "缺失值", choices = c("停止并提示" = "stop", "移除含缺失值的特征" = "omit_features"), width = "100%")
+                ),
+                htmltools::tags$div(
+                  class = "bp-pca-check-grid",
+                  shiny::checkboxInput("visual_pca_remove_zero_variance", "移除零方差特征", value = TRUE),
+                  shiny::checkboxInput("visual_pca_center", "中心化", value = TRUE),
+                  shiny::checkboxInput("visual_pca_scale", "标准化（scale）", value = FALSE)
+                ),
+                shiny::uiOutput("visual_pca_result_summary")
               )
             ),
             htmltools::tags$section(
@@ -309,7 +364,14 @@ bp_workspace_ui <- function(root) {
                 )
               ),
               htmltools::tags$div(
-                class = "bp-visual-reference-card",
+                class = "bp-pca-only bp-pca-ellipse-card",
+                hidden = "hidden",
+                shiny::checkboxInput("visual_pca_show_ellipse", "显示分组置信椭圆（stat_ellipse）", value = FALSE),
+                shiny::numericInput("visual_pca_ellipse_level", "置信水平", value = 0.95, min = 0.5, max = 0.999, step = 0.01, width = "100%"),
+                htmltools::tags$p("需要先选择颜色分组；每组样本数过少时 ggplot2 可能无法计算椭圆。")
+              ),
+              htmltools::tags$div(
+                class = "bp-visual-reference-card bp-non-pca-only",
                 htmltools::tags$div(
                   class = "bp-visual-reference-heading",
                   htmltools::tags$strong("参考虚线（可选）"),
@@ -336,16 +398,23 @@ bp_workspace_ui <- function(root) {
               htmltools::tags$div(
                 class = "bp-visual-label-grid",
                 shiny::textInput("visual_title", "图标题", value = "", width = "100%"),
-                shiny::textInput("visual_x_label", "X 轴标题", value = "", width = "100%"),
-                shiny::textInput("visual_y_label", "Y 轴标题", value = "", width = "100%"),
+                htmltools::tags$div(class = "bp-non-pca-only", shiny::textInput("visual_x_label", "X 轴标题", value = "", width = "100%")),
+                htmltools::tags$div(class = "bp-non-pca-only", shiny::textInput("visual_y_label", "Y 轴标题", value = "", width = "100%")),
                 shiny::textInput("visual_legend_title", "图例标题", value = "", width = "100%")
-              )
+              ),
+              htmltools::tags$p(class = "bp-pca-only bp-pca-axis-note", hidden = "hidden", "PCA 坐标轴会自动显示主成分及解释方差百分比。")
             ),
             htmltools::tags$section(
               id = "visual-section-export",
               class = "bp-visual-config-section bp-visual-export-section",
               bp_visual_section_header("06", "保存与导出", "顶部可保存项目或导出可复现的 R 脚本。"),
-              htmltools::tags$p("可视化模式和 R / 高级模式共享同一项目；切换模式不会丢失设置。")
+              htmltools::tags$p("可视化模式和 R / 高级模式共享同一项目；切换模式不会丢失设置。"),
+              htmltools::tags$div(
+                class = "bp-pca-only bp-pca-export-actions",
+                hidden = "hidden",
+                shiny::downloadButton("download_pca_scores", "导出 PCA 得分 CSV", class = "bp-command-button"),
+                shiny::downloadButton("download_pca_loadings", "导出 PCA 载荷 CSV", class = "bp-command-button")
+              )
             )
           )
         ),
@@ -471,6 +540,7 @@ bp_workspace_ui <- function(root) {
               )
             )
           ),
+          shiny::uiOutput("analysis_code_view"),
           shiny::uiOutput("code_view"),
           shiny::uiOutput("generated_code_transport"),
           shiny::uiOutput("project_state_transport")

@@ -63,6 +63,8 @@ bp_execute_project <- function(
     withCallingHandlers(
       {
         setTimeLimit(elapsed = timeout_seconds, transient = TRUE)
+        analysis_code <- bp_generate_pca_analysis_code(project)
+        if (nzchar(analysis_code)) eval(parse(text = analysis_code, keep.source = FALSE), envir = environment)
         expression <- bp_plot_language(project, registry)
         plot <- eval(expression, envir = environment)
         if (!inherits(plot, "ggplot")) {
@@ -135,7 +137,7 @@ bp_start_preview_process <- function(project, root, status_path, image_path, dat
       options(BioPlotBlocks.root = root)
       files <- list.files(file.path(root, "R"), pattern = "\\.R$", full.names = TRUE)
       priority <- c(
-        "ir-nodes.R", "module-registry.R", "module-instance.R", "data-sources.R", "visual-config.R", "codegen.R",
+        "ir-nodes.R", "module-registry.R", "module-instance.R", "data-sources.R", "pca.R", "visual-config.R", "codegen.R",
         "parser.R", "project-store.R", "diagnostics.R", "runtime.R", "templates.R",
         "ui-bindings.R"
       )

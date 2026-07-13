@@ -43,6 +43,31 @@
       "compatibility": {"runtime": "R", "required_context": "ggplot_plus_chain", "output_type": "ggplot_component"},
       "provenance": {"generated_by": "manual_agent_hybrid", "source_environment_lock": "config/compatibility-matrix.json", "mapping_rule_version": "0.2.0", "reviewed": true, "confidence": "verified_runtime"},
       "tests": {"required": ["schema", "codegen", "parser", "roundtrip", "execution"]}
+    },
+    {
+      "schema_version": "0.2.0", "module_version": "0.1.0", "id": "r.ggplot2.stat_ellipse", "runtime": "R", "r_version": ">=4.4.0 <4.6.0", "package": "ggplot2", "package_version": ">=4.0.0 <4.1.0", "symbol": "stat_ellipse", "exported": true, "module_type": "r_function_call", "status": "beta",
+      "presentation": {"title": "Group ellipse", "category": "geom", "icon": "mapping", "summary": "Draw confidence ellipses around grouped observations"},
+      "composition": {"output_type": "ggplot_component", "accepted_contexts": ["ggplot_plus_chain"], "operator": "+", "multiplicity": "many"},
+      "parameters": [
+        {"name": "mapping", "source": "formal", "formal_default": {"type": "RNull"}, "value_types": ["aes_mapping", "r_null", "r_expression"], "ui_group": "common", "ui_control": "aes_editor", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::stat_ellipse installed help", "version_notes": "Layer-local group mapping."},
+        {"name": "data", "source": "formal", "formal_default": {"type": "RNull"}, "value_types": ["data_reference", "r_null", "r_expression"], "ui_group": "advanced", "ui_control": "symbol_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::stat_ellipse installed help", "version_notes": "NULL inherits plot data."},
+        {"name": "type", "source": "formal", "formal_default": {"type": "RCharacter", "value": "t"}, "value_types": ["r_character", "r_expression"], "ui_group": "advanced", "ui_control": "enum", "ui_options": ["t", "norm", "euclid"], "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::stat_ellipse installed help", "version_notes": "Ellipse calculation type."},
+        {"name": "level", "source": "formal", "formal_default": {"type": "RDouble", "value": 0.95}, "value_types": ["r_number", "r_expression"], "ui_group": "common", "ui_control": "numeric_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::stat_ellipse installed help", "version_notes": "Confidence level."},
+        {"name": "segments", "source": "formal", "formal_default": {"type": "RInteger", "value": 51}, "value_types": ["r_integer", "r_expression"], "ui_group": "advanced", "ui_control": "numeric_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::stat_ellipse installed help", "version_notes": "Number of line segments."},
+        {"name": "color", "aliases": ["colour"], "source": "dots_aesthetic", "formal_default": null, "value_types": ["color_literal", "r_character", "r_expression"], "ui_group": "common", "ui_control": "color_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "stat_ellipse aesthetics", "version_notes": "Fixed line colour."},
+        {"name": "linewidth", "source": "dots_aesthetic", "formal_default": null, "value_types": ["r_number", "r_expression"], "ui_group": "common", "ui_control": "numeric_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "stat_ellipse aesthetics", "version_notes": "Ellipse line width."},
+        {"name": "linetype", "source": "dots_aesthetic", "formal_default": null, "value_types": ["r_number", "r_character", "r_expression"], "ui_group": "advanced", "ui_control": "numeric_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "stat_ellipse aesthetics", "version_notes": "Ellipse line type."},
+        {"name": "alpha", "source": "dots_aesthetic", "formal_default": null, "value_types": ["r_number", "r_expression"], "ui_group": "advanced", "ui_control": "numeric_or_expression", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "stat_ellipse aesthetics", "version_notes": "Ellipse opacity."},
+        {"name": "na.rm", "source": "formal", "formal_default": {"type": "RLogical", "value": false}, "value_types": ["r_logical", "r_expression"], "ui_group": "advanced", "ui_control": "logical_state", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::stat_ellipse installed help", "version_notes": "Remove missing values."},
+        {"name": "show.legend", "source": "formal", "formal_default": {"type": "RNA", "na_type": "logical"}, "value_types": ["r_logical", "r_na", "r_expression"], "ui_group": "advanced", "ui_control": "logical_state", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::stat_ellipse installed help", "version_notes": "Legend behavior."},
+        {"name": "inherit.aes", "source": "formal", "formal_default": {"type": "RLogical", "value": true}, "value_types": ["r_logical", "r_expression"], "ui_group": "advanced", "ui_control": "logical_state", "raw_expression_allowed": true, "omit_when_unset": true, "help_source": "ggplot2::stat_ellipse installed help", "version_notes": "Inherit plot mappings."}
+      ],
+      "code_generation": {"call_style": "preserve_or_named", "namespace_policy": "project_setting", "preserve_argument_order": true, "omit_unset_parameters": true, "preserve_explicit_defaults": true, "support_raw_expressions": true},
+      "code_parsing": {"accepted_symbols": ["stat_ellipse", "ggplot2::stat_ellipse"], "unknown_arguments": "preserve_as_named_raw", "unknown_values": "preserve_as_raw_expression"},
+      "documentation": {"reference_topic": "stat_ellipse", "source_type": "installed_package_help"},
+      "compatibility": {"runtime": "R", "required_context": "ggplot_plus_chain", "output_type": "ggplot_component"},
+      "provenance": {"generated_by": "manual_agent_hybrid", "source_environment_lock": "config/compatibility-matrix.json", "mapping_rule_version": "0.2.0", "reviewed": true, "confidence": "verified_runtime"},
+      "tests": {"required": ["schema", "codegen", "parser", "roundtrip", "execution"]}
     }
   ]
 }

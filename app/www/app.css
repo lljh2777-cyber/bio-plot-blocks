@@ -3881,9 +3881,117 @@ html.bp-interface-visual .bp-project-name-wrap {
 .bp-volcano-only[hidden],
 .bp-scatter-only[hidden],
 .bp-boxplot-only[hidden],
+.bp-pca-only[hidden],
+.bp-non-pca-only[hidden],
 .bp-point-only[hidden],
 .bp-non-boxplot-only[hidden] {
   display: none !important;
+}
+
+.bp-pca-source-card,
+.bp-pca-fields-card,
+.bp-pca-ellipse-card {
+  padding: 11px;
+  border: 1px solid #cddcf3;
+  border-radius: 9px;
+  background: #f7faff;
+}
+
+.bp-pca-source-grid,
+.bp-pca-preprocess-grid,
+.bp-pca-check-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 10px;
+}
+
+.bp-pca-check-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 8px 10px 2px;
+  border: 1px solid var(--bp-border);
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+.bp-pca-check-grid .checkbox {
+  margin: 0 0 7px;
+}
+
+.bp-pca-check-grid label,
+.bp-pca-ellipse-card p,
+.bp-pca-axis-note {
+  color: var(--bp-text-muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.bp-pca-subheading {
+  margin: 10px 0 7px;
+  color: var(--bp-text);
+  font-size: 10px;
+}
+
+.bp-pca-ellipse-card {
+  margin: 10px 0 12px;
+}
+
+.bp-pca-ellipse-card > p {
+  margin: -3px 0 0 22px;
+}
+
+.bp-pca-diagnostics,
+.bp-pca-result-summary {
+  margin-top: 8px;
+  padding: 9px 10px;
+  border: 1px solid #bcd2f4;
+  border-radius: 7px;
+  background: #eef5ff;
+  color: #244267;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.bp-pca-diagnostics.is-error {
+  border-color: #f0b9b9;
+  background: #fff3f3;
+  color: #9c2525;
+}
+
+.bp-pca-diagnostics.is-warning {
+  border-color: #efd28a;
+  background: #fff9e9;
+  color: #7b5708;
+}
+
+.bp-pca-diagnostics strong,
+.bp-pca-result-summary strong {
+  display: block;
+  margin-bottom: 3px;
+}
+
+.bp-pca-export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.bp-analysis-code {
+  border-bottom: 1px solid var(--bp-border);
+  background: #fbfcff;
+}
+
+.bp-analysis-code > summary {
+  padding: 8px 12px;
+  color: var(--bp-text-secondary);
+  font-size: 9px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.bp-analysis-code .bp-code-editor {
+  max-height: 260px;
+  border-top: 1px solid var(--bp-border);
 }
 
 .bp-boxplot-only {

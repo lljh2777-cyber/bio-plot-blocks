@@ -546,9 +546,12 @@ bp_data_source_reference_suggestions <- function(project) {
 
 bp_mark_data_sources_for_relink <- function(project) {
   project$data_sources <- lapply(project$data_sources %||% list(), function(source) {
-    if (!isTRUE(source$example)) {
+    if (!isTRUE(source$example) && !isTRUE(source$derived)) {
       source$status <- "relink_required"
       source$relink_required <- TRUE
+    } else if (isTRUE(source$derived)) {
+      source$status <- "derived_stale"
+      source$relink_required <- FALSE
     }
     source
   })

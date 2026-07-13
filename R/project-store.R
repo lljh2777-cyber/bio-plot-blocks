@@ -37,7 +37,8 @@ bp_create_project <- function(name = "Untitled plot") {
       active_chart_type = "scatter",
       scatter = bp_visual_scatter_defaults(),
       volcano = bp_visual_volcano_defaults(),
-      boxplot = bp_visual_boxplot_defaults()
+      boxplot = bp_visual_boxplot_defaults(),
+      pca = bp_pca_defaults()
     ),
     template_provenance = NULL,
     original_source = NULL,
@@ -92,6 +93,7 @@ bp_migrate_project <- function(project) {
     project$visual_config$scatter <- project$visual_config$scatter %||% bp_visual_scatter_defaults(project)
     project$visual_config$volcano <- project$visual_config$volcano %||% bp_visual_volcano_defaults(project)
     project$visual_config$boxplot <- project$visual_config$boxplot %||% bp_visual_boxplot_defaults(project)
+    project$visual_config$pca <- project$visual_config$pca %||% bp_pca_defaults(project)
     project <- bp_visual_remove_automatic_volcano_lines(project)
     return(project)
   }
@@ -110,6 +112,7 @@ bp_migrate_project <- function(project) {
     project$visual_config$scatter <- project$visual_config$scatter %||% bp_visual_scatter_defaults(project)
     project$visual_config$volcano <- project$visual_config$volcano %||% bp_visual_volcano_defaults(project)
     project$visual_config$boxplot <- project$visual_config$boxplot %||% bp_visual_boxplot_defaults(project)
+    project$visual_config$pca <- project$visual_config$pca %||% bp_pca_defaults(project)
     project <- bp_visual_remove_automatic_volcano_lines(project)
     return(project)
   }
