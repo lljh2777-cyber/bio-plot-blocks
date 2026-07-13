@@ -511,6 +511,7 @@ bp_data_import_modal <- function() {
 
 bp_data_preview_table <- function(data, rows = 30L, columns = 12L, row_numbers = FALSE) {
   shown <- utils::head(data, rows)
+  row_labels <- row.names(shown)
   shown <- shown[, seq_len(min(ncol(shown), columns)), drop = FALSE]
   header_cells <- lapply(names(shown), htmltools::tags$th)
   if (isTRUE(row_numbers)) {
@@ -527,7 +528,7 @@ bp_data_preview_table <- function(data, rows = 30L, columns = 12L, row_numbers =
           htmltools::tags$td(title = text, text)
         })
         if (isTRUE(row_numbers)) {
-          cells <- c(list(htmltools::tags$th(class = "bp-data-row-number", scope = "row", row)), cells)
+          cells <- c(list(htmltools::tags$th(class = "bp-data-row-number", scope = "row", row_labels[[row]])), cells)
         }
         htmltools::tags$tr(cells)
       }))
@@ -611,10 +612,6 @@ bp_r_object_browser <- function(imported) {
     ),
     htmltools::tags$p(item$message)
   )
-  preview <- if (length(supported)) {
-    object <- imported$objects[[supported[[1]]$name]]
-    tryCatch(bp_data_preview_table(bp_convert_r_object(object), rows = 12L), error = function(error) htmltools::tags$p(class = "bp-import-error", conditionMessage(error)))
-  }
   htmltools::tagList(
     htmltools::tags$h3("2. Browse R objects"),
     htmltools::tags$div(
@@ -645,7 +642,28 @@ bp_r_object_browser <- function(imported) {
       ),
       shiny::textInput("r_row_name_column", "Column name when converting row names", value = "RowName")
     ),
-    if (!is.null(preview)) htmltools::tags$details(class = "bp-import-section", open = "open", htmltools::tags$summary("First supported object preview"), preview),
+    if (length(supported)) htmltools::tags$section(
+      class = "bp-r-object-preview",
+      htmltools::tags$div(
+        class = "bp-r-object-preview-heading",
+        htmltools::tags$strong("Preview data object"),
+        htmltools::tags$span("Click any available object to inspect its first 30 rows and all columns.")
+      ),
+      htmltools::tags$div(
+        class = "bp-r-preview-picker",
+        shiny::radioButtons(
+          "r_preview_object", label = NULL,
+          choiceNames = lapply(supported, function(item) htmltools::tagList(
+            htmltools::tags$code(item$name),
+            htmltools::tags$span(paste0(format(item$rows, big.mark = ","), " × ", format(item$columns, big.mark = ",")))
+          )),
+          choiceValues = vapply(supported, `[[`, character(1), "name"),
+          selected = supported[[1]]$name,
+          inline = TRUE
+        )
+      ),
+      shiny::uiOutput("r_object_preview")
+    ),
     htmltools::tags$div(class = "bp-inline-warning", bp_icon("info", 18), htmltools::tags$span("RData/rda is loaded into an isolated environment. Functions, environments, connections, formulas, external pointers, and unsupported objects are never registered."))
   )
 }
@@ -1383,6 +1401,39 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       bp_data_mapping_controls(imported, state$project)
     )
   })
+
+  output$r_object_preview <- shiny::renderUI({
+    imported <- state$data_import
+    shiny::req(!is.null(imported), is.null(imported$error), imported$format %in% c("rds", "rdata", "rda"))
+    supported <- Filter(function(item) isTRUE(item$supported), imported$metadata %||% list())
+    shiny::req(length(supported) > 0L)
+    supported_names <- vapply(supported, `[[`, character(1), "name")
+    object_name <- input$r_preview_object %||% supported_names[[1]]
+    if (!object_name %in% supported_names) object_name <- supported_names[[1]]
+    metadata <- supported[[match(object_name, supported_names)]]
+    row_names <- input$r_row_names %||% "preserve"
+    row_name_column <- input$r_row_name_column %||% "RowName"
+    data <- tryCatch(
+      bp_convert_r_object(imported$objects[[object_name]], row_names = row_names, row_name_column = row_name_column),
+      error = identity
+    )
+    if (inherits(data, "error")) {
+      return(htmltools::tags$div(class = "bp-import-error", conditionMessage(data)))
+    }
+    htmltools::tagList(
+      htmltools::tags$div(
+        class = "bp-r-preview-summary",
+        htmltools::tags$strong(paste0("Preview: ", object_name)),
+        htmltools::tags$span(paste0(
+          "Showing ", min(30L, nrow(data)), " of ", format(nrow(data), big.mark = ","),
+          " rows · all ", format(ncol(data), big.mark = ","), " columns",
+          if (isTRUE(metadata$requires_conversion)) " · converted to data.frame for preview" else ""
+        ))
+      ),
+      bp_data_preview_table(data, rows = 30L, columns = ncol(data), row_numbers = TRUE)
+    )
+  })
+  shiny::outputOptions(output, "r_object_preview", suspendWhenHidden = FALSE)
 
   shiny::observeEvent(input$import_data, {
     state$data_import <- NULL

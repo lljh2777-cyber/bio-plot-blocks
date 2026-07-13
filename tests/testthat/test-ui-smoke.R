@@ -75,6 +75,10 @@ test_that("visual and advanced modes share a visibility-aware shell", {
   expect_match(css, ".bp-visual-data-preview .bp-data-preview-scroll", fixed = TRUE)
   expect_match(css, ".bp-visual-data-preview-checkbox:checked ~ .bp-visual-data-preview-content", fixed = TRUE)
   expect_match(css, "touch-action: pan-x pan-y", fixed = TRUE)
+  expect_match(css, ".bp-r-preview-picker", fixed = TRUE)
+  expect_match(css, ".bp-r-object-preview .bp-data-preview-scroll", fixed = TRUE)
+  expect_match(css, "overflow-x: scroll", fixed = TRUE)
+  expect_match(css, "scrollbar-gutter: stable", fixed = TRUE)
 })
 
 test_that("topbar has responsive overflow safeguards in both modes", {

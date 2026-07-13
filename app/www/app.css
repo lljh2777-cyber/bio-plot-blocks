@@ -2539,10 +2539,15 @@ html.bp-restoring-project body::before {
 
 .bp-data-preview-scroll,
 .bp-column-profile-scroll {
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
   max-height: 270px;
   margin-top: 8px;
-  overflow: auto;
+  overflow-x: scroll;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   border: 1px solid var(--bp-border);
   border-radius: 6px;
 }
@@ -3435,6 +3440,89 @@ body.bp-help-open {
 .bp-help-no-results p {
   margin: 5px 0 0;
   font-size: 11px;
+}
+
+.bp-r-object-preview {
+  min-width: 0;
+  margin: 10px 0;
+  padding-top: 11px;
+  border-top: 1px solid var(--bp-border);
+}
+
+.bp-r-object-preview-heading,
+.bp-r-preview-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bp-r-object-preview-heading span,
+.bp-r-preview-summary span {
+  color: var(--bp-text-muted);
+  font-size: 9px;
+}
+
+.bp-r-preview-picker {
+  min-width: 0;
+  margin-top: 8px;
+}
+
+.bp-r-preview-picker .form-group,
+.bp-r-preview-picker .shiny-options-group {
+  margin: 0;
+}
+
+.bp-r-preview-picker .shiny-options-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.bp-r-preview-picker .radio-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 9px;
+  border: 1px solid var(--bp-border);
+  border-radius: 6px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.bp-r-preview-picker .radio-inline:has(input:checked) {
+  border-color: var(--bp-primary);
+  background: var(--bp-primary-soft);
+  box-shadow: 0 0 0 1px var(--bp-primary);
+}
+
+.bp-r-preview-picker .radio-inline input {
+  position: static;
+  margin: 0;
+}
+
+.bp-r-preview-picker .radio-inline code {
+  color: var(--bp-text);
+  font-weight: 700;
+}
+
+.bp-r-preview-picker .radio-inline span {
+  color: var(--bp-text-muted);
+  font-size: 9px;
+}
+
+.bp-r-preview-summary {
+  margin-top: 10px;
+}
+
+.bp-r-object-preview .bp-data-preview-scroll {
+  max-height: 300px;
+}
+
+.bp-r-object-preview .bp-data-preview-table th,
+.bp-r-object-preview .bp-data-preview-table td {
+  min-width: 92px;
 }
 
 /* Task-driven visual plotting mode --------------------------------------- */

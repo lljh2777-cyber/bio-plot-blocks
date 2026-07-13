@@ -20,6 +20,28 @@ test_that("Shiny registers multiple safe RData objects without changing the acti
     expect_setequal(names(state$data_import$objects), c("deg", "counts"))
     expect_identical(Filter(function(item) identical(item$name, "blocked"), state$data_import$metadata)[[1]]$status, "forbidden")
 
+    browser_html <- htmltools::renderTags(output$data_import_results)$html
+    expect_match(browser_html, "Preview data object", fixed = TRUE)
+    expect_match(browser_html, "r_preview_object", fixed = TRUE)
+    expect_match(browser_html, "r_object_preview", fixed = TRUE)
+    expect_match(browser_html, "deg", fixed = TRUE)
+    expect_match(browser_html, "counts", fixed = TRUE)
+
+    session$setInputs(r_preview_object = "counts", r_row_names = "column", r_row_name_column = "Feature")
+    session$flushReact()
+    counts_preview_html <- htmltools::renderTags(output$r_object_preview)$html
+    expect_match(counts_preview_html, "Preview: counts", fixed = TRUE)
+    expect_match(counts_preview_html, "all 4 columns", fixed = TRUE)
+    expect_match(counts_preview_html, "Feature", fixed = TRUE)
+    expect_match(counts_preview_html, "S3", fixed = TRUE)
+
+    session$setInputs(r_preview_object = "deg")
+    session$flushReact()
+    deg_preview_html <- htmltools::renderTags(output$r_object_preview)$html
+    expect_match(deg_preview_html, "Preview: deg", fixed = TRUE)
+    expect_match(deg_preview_html, "gene", fixed = TRUE)
+    expect_match(deg_preview_html, "log2FC", fixed = TRUE)
+
     session$setInputs(
       r_object_selection = c("deg", "counts"),
       r_row_names = "column", r_row_name_column = "Feature",

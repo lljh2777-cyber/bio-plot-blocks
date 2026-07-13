@@ -22,3 +22,4 @@ Thumbs.db
 # Local temporary and test-output folders
 tmp/
 output/playwright/
+shiny-test.*.log
