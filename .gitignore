@@ -23,3 +23,10 @@ Thumbs.db
 tmp/
 output/playwright/
 shiny-test.*.log
+
+# Local product requirements and feature-development notes
+/BioPlotBlocks *功能*.md
+/BioPlotBlocks *改版说明.md
+/BioPlotBlocks_R_ggplot2_Development_Process_and_Requirements_Specification*.md
+/BioPlotBlocks_R语言_ggplot2开发流程与需求规范*.md
+/docs/requirements-analysis.md
