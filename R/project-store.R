@@ -33,6 +33,9 @@ bp_create_project <- function(name = "Untitled plot") {
     active_data_source_id = "dataset_example",
     mapping_config = list(dataset_id = "dataset_example", plot_id = NULL, mapping = list(), confirmed_by_user = TRUE),
     data_reference = list(strategy = "local_environment", source_id = "dataset_example", symbol = "df", embedded = FALSE),
+    analysis_workflow_mode = "generic",
+    analysis_contract_version = "0.1.0",
+    analysis_recipes = list(),
     visual_config = list(
       active_chart_type = "scatter",
       scatter = bp_visual_scatter_defaults(),
@@ -85,15 +88,20 @@ bp_migrate_project <- function(project) {
   version <- project$schema_version %||% "0.1.0"
   if (identical(version, "0.2.0")) {
     project$data_sources <- project$data_sources %||% list(bp_example_data_source())
+    project$data_sources <- lapply(project$data_sources, bp_normalize_data_source_semantics)
     project$active_data_source_id <- project$active_data_source_id %||% "dataset_example"
     project$mapping_config <- project$mapping_config %||% list(dataset_id = project$active_data_source_id, plot_id = NULL, mapping = list(), confirmed_by_user = TRUE)
     project$data_reference$source_id <- project$data_reference$source_id %||% project$active_data_source_id
+    project$analysis_workflow_mode <- if ((project$analysis_workflow_mode %||% "generic") %in% c("generic", "rna_seq")) project$analysis_workflow_mode %||% "generic" else "generic"
+    project$analysis_contract_version <- project$analysis_contract_version %||% "0.1.0"
+    project$analysis_recipes <- project$analysis_recipes %||% list()
     project$visual_config <- project$visual_config %||% list(scatter = bp_visual_scatter_defaults(project))
     project$visual_config$active_chart_type <- project$visual_config$active_chart_type %||% "scatter"
     project$visual_config$scatter <- project$visual_config$scatter %||% bp_visual_scatter_defaults(project)
     project$visual_config$volcano <- project$visual_config$volcano %||% bp_visual_volcano_defaults(project)
     project$visual_config$boxplot <- project$visual_config$boxplot %||% bp_visual_boxplot_defaults(project)
     project$visual_config$pca <- project$visual_config$pca %||% bp_pca_defaults(project)
+    if (identical(project$visual_config$active_chart_type, "volcano")) project$analysis_workflow_mode <- "rna_seq"
     project <- bp_visual_remove_automatic_volcano_lines(project)
     return(project)
   }
@@ -104,15 +112,20 @@ bp_migrate_project <- function(project) {
     project$package_scope <- "ggplot2"
     project$diagnostics <- project$diagnostics %||% list()
     project$data_sources <- project$data_sources %||% list(bp_example_data_source())
+    project$data_sources <- lapply(project$data_sources, bp_normalize_data_source_semantics)
     project$active_data_source_id <- project$active_data_source_id %||% "dataset_example"
     project$mapping_config <- project$mapping_config %||% list(dataset_id = project$active_data_source_id, plot_id = NULL, mapping = list(), confirmed_by_user = TRUE)
     project$data_reference <- project$data_reference %||% list(strategy = "local_environment", source_id = project$active_data_source_id, symbol = "df", embedded = FALSE)
+    project$analysis_workflow_mode <- "generic"
+    project$analysis_contract_version <- "0.1.0"
+    project$analysis_recipes <- list()
     project$visual_config <- project$visual_config %||% list(scatter = bp_visual_scatter_defaults(project))
     project$visual_config$active_chart_type <- project$visual_config$active_chart_type %||% "scatter"
     project$visual_config$scatter <- project$visual_config$scatter %||% bp_visual_scatter_defaults(project)
     project$visual_config$volcano <- project$visual_config$volcano %||% bp_visual_volcano_defaults(project)
     project$visual_config$boxplot <- project$visual_config$boxplot %||% bp_visual_boxplot_defaults(project)
     project$visual_config$pca <- project$visual_config$pca %||% bp_pca_defaults(project)
+    if (identical(project$visual_config$active_chart_type, "volcano")) project$analysis_workflow_mode <- "rna_seq"
     project <- bp_visual_remove_automatic_volcano_lines(project)
     return(project)
   }

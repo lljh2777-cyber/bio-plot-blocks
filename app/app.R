@@ -7,7 +7,7 @@ options(BioPlotBlocks.root = root)
 options(shiny.maxRequestSize = 25 * 1024^2)
 
 source_order <- c(
-  "ir-nodes.R", "module-registry.R", "module-instance.R", "data-sources.R", "pca.R", "visual-config.R", "codegen.R",
+  "ir-nodes.R", "module-registry.R", "module-instance.R", "data-sources.R", "rna-seq.R", "pca.R", "visual-config.R", "codegen.R",
   "project-store.R", "parser.R", "diagnostics.R", "runtime.R", "templates.R",
   "ui-bindings.R"
 )

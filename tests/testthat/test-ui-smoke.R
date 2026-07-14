@@ -42,17 +42,37 @@ test_that("workspace UI renders the full primary surface", {
   expect_match(html, "bp-boxplot-overlap-warning", fixed = TRUE)
   expect_match(html, "可能出现重叠或颜色加深", fixed = TRUE)
   expect_match(html, "bp-visual-chart-requirement")
+  expect_match(html, "bp-visual-chart-requirement-copy")
   expect_match(html, "至少 2 个数值型字段（X、Y）", fixed = TRUE)
-  expect_match(html, "倍数变化列 + P 值或 FDR 列", fixed = TRUE)
+  expect_match(html, "logFC + P 值或 FDR", fixed = TRUE)
   expect_match(html, "1 个分组字段 + 1 个数值字段", fixed = TRUE)
   expect_match(html, "表达矩阵；可选样本分组信息", fixed = TRUE)
+  expect_match(html, "降维图", fixed = TRUE)
+  expect_match(html, "基因表达散点图", fixed = TRUE)
+  expect_match(html, "表达箱线图", fixed = TRUE)
+  expect_match(html, 'data-generic-visible="false"', fixed = TRUE)
+  expect_match(html, "只切换图表目录与分析语义", fixed = TRUE)
   expect_match(html, "visual_pca_expression_source")
+  expect_match(html, "bp-visual-source-card", fixed = TRUE)
+  expect_match(html, 'class="bp-pca-source-card bp-visual-source-card"', fixed = TRUE)
+  expect_false(grepl('id="visual_data_source"', html, fixed = TRUE))
+  expect_lt(
+    regexpr('id="visual-section-chart"', html, fixed = TRUE)[[1]],
+    regexpr('id="visual-section-source"', html, fixed = TRUE)[[1]]
+  )
+  expect_match(html, 'class="bp-visual-step is-active"[^>]*data-visual-section="visual-section-chart"', perl = TRUE)
+  expect_match(html, "visual_workflow_mode")
+  expect_match(html, "visual_data_semantics")
+  expect_match(html, "visual_chart_compatibility")
+  expect_match(html, "visual_pca_recipe_panel")
   expect_match(html, "visual_pca_metadata_source")
   expect_match(html, "visual_pca_orientation")
   expect_match(html, "visual_pca_x_component")
   expect_match(html, "visual_pca_feature_count")
   expect_match(html, "visual_pca_show_ellipse")
   expect_match(html, "download_pca_scores")
+  expect_match(html, "visual_pca_normalized_export")
+  expect_match(html, "analysis_context_view")
   expect_match(html, "analysis_code_view")
   expect_match(html, "visual_vlines")
   expect_match(html, "visual_hlines")
@@ -72,6 +92,14 @@ test_that("visual and advanced modes share a visibility-aware shell", {
   expect_match(css, ".bp-visual-preview-canvas", fixed = TRUE)
   expect_match(js, "bp_visual_chart_type", fixed = TRUE)
   expect_match(js, "setVisualChartType", fixed = TRUE)
+  expect_match(js, "bp_visual_workflow_mode", fixed = TRUE)
+  expect_match(js, "setVisualWorkflowMode", fixed = TRUE)
+  expect_match(js, 'input[name="visual_workflow_mode"]', fixed = TRUE)
+  expect_match(js, "GENE EXPRESSION SCATTER", fixed = TRUE)
+  expect_match(js, "DIMENSION REDUCTION", fixed = TRUE)
+  expect_match(js, "scrollVisualSection", fixed = TRUE)
+  expect_match(js, "restoreVisualPageOrigin", fixed = TRUE)
+  expect_match(js, "if (section) scrollVisualSection(section);", fixed = TRUE)
   expect_match(js, '["scatter", "volcano", "boxplot", "pca"]', fixed = TRUE)
   expect_match(js, "#visual_point_color, #visual_reference_color", fixed = TRUE)
   expect_match(js, "#visual_box_jitter_color", fixed = TRUE)
@@ -79,11 +107,55 @@ test_that("visual and advanced modes share a visibility-aware shell", {
   expect_match(css, ".bp-boxplot-only[hidden]", fixed = TRUE)
   expect_match(css, ".bp-pca-only[hidden]", fixed = TRUE)
   expect_match(css, ".bp-pca-source-card", fixed = TRUE)
+  expect_match(css, ".bp-visual-source-card", fixed = TRUE)
+  expect_match(css, "@media (min-width: 761px)", fixed = TRUE)
+  expect_match(css, "height: 100dvh", fixed = TRUE)
+  expect_match(css, "overscroll-behavior: none", fixed = TRUE)
+  expect_match(css, "overscroll-behavior: contain", fixed = TRUE)
   expect_match(css, ".bp-analysis-code", fixed = TRUE)
+  expect_match(css, ".bp-data-passport", fixed = TRUE)
+  expect_match(css, ".bp-chart-compatibility", fixed = TRUE)
+  expect_match(css, ".bp-pca-recipe-card", fixed = TRUE)
+  expect_match(css, ".bp-analysis-context", fixed = TRUE)
   expect_match(css, ".bp-boxplot-jitter-card", fixed = TRUE)
   expect_match(css, ".bp-boxplot-overlap-warning", fixed = TRUE)
   expect_match(css, ".bp-visual-reference-card", fixed = TRUE)
   expect_match(css, ".bp-visual-chart-requirement", fixed = TRUE)
+  expect_match(css, 'body[data-visual-workflow-mode="generic"]', fixed = TRUE)
+  expect_match(css, 'body[data-visual-workflow-mode="rna_seq"]', fixed = TRUE)
+  expect_match(css, ".bp-visual-chart-card[hidden]", fixed = TRUE)
+  expect_match(
+    css,
+    paste0(
+      'body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type="pca"] {',
+      "\n  order: 1;\n}"
+    ),
+    fixed = TRUE
+  )
+  expect_match(
+    css,
+    paste0(
+      'body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type="boxplot"] {',
+      "\n  order: 2;\n}"
+    ),
+    fixed = TRUE
+  )
+  expect_match(
+    css,
+    paste0(
+      'body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type="scatter"] {',
+      "\n  order: 3;\n}"
+    ),
+    fixed = TRUE
+  )
+  expect_match(
+    css,
+    paste0(
+      'body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type="volcano"] {',
+      "\n  order: 4;\n}"
+    ),
+    fixed = TRUE
+  )
   expect_match(css, ".bp-visual-data-preview .bp-data-preview-scroll", fixed = TRUE)
   expect_match(css, ".bp-visual-data-preview-checkbox:checked ~ .bp-visual-data-preview-content", fixed = TRUE)
   expect_match(css, "touch-action: pan-x pan-y", fixed = TRUE)

@@ -61,6 +61,20 @@ test_that("project migration removes legacy automatic volcano lines only", {
 
   expect_false("volcano_fc_threshold" %in% roles)
   expect_true("visual_horizontal_reference_lines" %in% roles)
+  if (identical(migrated$visual_config$active_chart_type, "volcano")) {
+    expect_identical(migrated$analysis_workflow_mode, "rna_seq")
+  }
+})
+
+test_that("project migration keeps an active volcano plot in the RNA-seq catalog", {
+  project <- bp_create_project("Legacy volcano")
+  project$analysis_workflow_mode <- "generic"
+  project$visual_config$active_chart_type <- "volcano"
+
+  migrated <- bp_migrate_project(project)
+
+  expect_identical(migrated$analysis_workflow_mode, "rna_seq")
+  expect_identical(migrated$visual_config$active_chart_type, "volcano")
 })
 
 test_that("scope scan permits only visible ggplot2 add-on calls", {

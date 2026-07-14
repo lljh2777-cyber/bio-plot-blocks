@@ -15,6 +15,12 @@ bp_pca_defaults <- function(project = NULL) {
     expression_sample_id_field = "",
     metadata_sample_id_field = "",
     unmatched_sample_policy = "strict",
+    input_semantic_type = "generic_table",
+    raw_count_filter_cpm = 0.5,
+    raw_count_filter_min_samples = 2L,
+    raw_count_normalization = bp_raw_count_default_normalization(),
+    raw_count_prior_count = 2,
+    raw_count_recipe_confirmed_signature = "",
     transform = "auto",
     variable_feature_count = 1000L,
     custom_feature_count = 1000L,
@@ -49,6 +55,7 @@ bp_normalize_pca_config <- function(config, project = NULL) {
     "chart_type", "expression_source_id", "metadata_source_id", "expression_orientation",
     "feature_id_location", "feature_id_field", "expression_sample_id_location",
     "expression_sample_id_field", "metadata_sample_id_field", "unmatched_sample_policy",
+    "input_semantic_type", "raw_count_normalization", "raw_count_recipe_confirmed_signature",
     "transform", "missing_value_policy", "x_component", "y_component", "color_field",
     "shape_field", "label_field", "point_color", "shape", "palette", "title",
     "legend_title", "theme"
@@ -66,6 +73,8 @@ bp_normalize_pca_config <- function(config, project = NULL) {
   if (!config$feature_id_location %in% c("auto", "rownames", "column", "none")) config$feature_id_location <- "auto"
   if (!config$expression_sample_id_location %in% c("auto", "column_names", "rownames", "column")) config$expression_sample_id_location <- "auto"
   if (!config$unmatched_sample_policy %in% c("strict", "matched_only")) config$unmatched_sample_policy <- "strict"
+  if (!config$input_semantic_type %in% c("generic_table", "raw_counts", "normalized_expression", "unconfirmed_raw_counts")) config$input_semantic_type <- "generic_table"
+  if (!config$raw_count_normalization %in% c("tmm_logcpm", "log2p1")) config$raw_count_normalization <- defaults$raw_count_normalization
   if (!config$transform %in% c("auto", "none", "log2p1")) config$transform <- "auto"
   if (!config$missing_value_policy %in% c("stop", "omit_features")) config$missing_value_policy <- "stop"
   feature_count <- config$variable_feature_count
@@ -88,6 +97,11 @@ bp_normalize_pca_config <- function(config, project = NULL) {
   config$alpha <- number(config$alpha, defaults$alpha, 0, 1)
   config$ellipse_level <- number(config$ellipse_level, defaults$ellipse_level, 0.5, 0.999)
   config$base_size <- number(config$base_size, defaults$base_size, 6, 40)
+  config$raw_count_filter_cpm <- number(config$raw_count_filter_cpm, defaults$raw_count_filter_cpm, 0, 1e6)
+  config$raw_count_prior_count <- number(config$raw_count_prior_count, defaults$raw_count_prior_count, .Machine$double.eps, 1e6)
+  raw_min_samples <- suppressWarnings(as.integer(config$raw_count_filter_min_samples %||% defaults$raw_count_filter_min_samples))
+  if (!length(raw_min_samples) || is.na(raw_min_samples[[1]]) || raw_min_samples[[1]] < 1L) raw_min_samples <- defaults$raw_count_filter_min_samples
+  config$raw_count_filter_min_samples <- raw_min_samples[[1]]
   config$remove_zero_variance <- if (is.null(config$remove_zero_variance)) TRUE else isTRUE(config$remove_zero_variance)
   config$center <- if (is.null(config$center)) TRUE else isTRUE(config$center)
   config$scale <- isTRUE(config$scale)
@@ -367,8 +381,56 @@ bp_pca_compute_core <- function(expression_data, metadata_data = NULL, config = 
 }
 
 bp_compute_pca <- function(expression_data, metadata_data = NULL, config = list()) {
+  config <- bp_normalize_pca_config(config)
+  if (identical(config$input_semantic_type, "unconfirmed_raw_counts")) {
+    return(list(
+      ok = FALSE,
+      error = "当前数据结构可能是 RNA-seq Raw count。请先确认数据语义，软件不会静默执行关键分析。",
+      requires_semantic_confirmation = TRUE,
+      diagnostics = list(), warnings = character()
+    ))
+  }
+  if (identical(config$input_semantic_type, "raw_counts")) {
+    expected_signature <- bp_raw_count_recipe_signature(config)
+    if (!identical(config$raw_count_recipe_confirmed_signature, expected_signature)) {
+      return(list(
+        ok = FALSE,
+        error = "Raw count PCA 配方尚未确认，或参数已发生变化。请检查分析步骤并点击“使用当前设置并生成”。",
+        requires_recipe_confirmation = TRUE,
+        diagnostics = list(), warnings = character()
+      ))
+    }
+  }
   tryCatch(
-    bp_pca_compute_core(expression_data, metadata_data, bp_normalize_pca_config(config)),
+    {
+      preparation <- NULL
+      pca_data <- expression_data
+      pca_config <- config
+      if (identical(config$input_semantic_type, "raw_counts")) {
+        preparation <- bp_raw_count_prepare_core(expression_data, config)
+        pca_data <- preparation$expression
+        pca_config$expression_orientation <- "genes_by_samples"
+        pca_config$feature_id_location <- "column"
+        pca_config$feature_id_field <- "Feature"
+        pca_config$expression_sample_id_location <- "column_names"
+        pca_config$expression_sample_id_field <- ""
+        pca_config$transform <- "none"
+      }
+      result <- bp_pca_compute_core(pca_data, metadata_data, pca_config)
+      if (!is.null(preparation)) {
+        result$normalized_expression <- preparation$expression
+        result$preparation <- preparation
+        result$transform_applied <- preparation$normalization_method
+        result$warnings <- unique(c(
+          result$warnings,
+          paste0(
+            "Raw count 低表达过滤保留 ", preparation$retained_feature_count, " / ",
+            preparation$original_feature_count, " 个特征；使用 ", preparation$normalization_label, "。"
+          )
+        ))
+      }
+      result
+    },
     error = function(error) list(
       ok = FALSE,
       error = conditionMessage(error),
@@ -380,11 +442,17 @@ bp_compute_pca <- function(expression_data, metadata_data = NULL, config = list(
 
 bp_pca_derived_source <- function(id, name, kind, config, result = NULL) {
   data <- if (!is.null(result) && isTRUE(result$ok)) result[[kind]] else NULL
+  semantic_type <- switch(kind, scores = "pca_scores", loadings = "pca_loadings", normalized_expression = "normalized_expression", "generic_table")
+  source_type <- if (identical(kind, "normalized_expression")) "derived_expression" else "derived_pca"
+  preparation <- result$preparation %||% list()
+  package_versions <- preparation$package_versions %||% list(R = as.character(getRversion()))
+  package_versions$stats <- as.character(utils::packageVersion("stats"))
+  if (requireNamespace("ggplot2", quietly = TRUE)) package_versions$ggplot2 <- as.character(utils::packageVersion("ggplot2"))
   list(
     id = id,
     name = name,
-    source_type = "derived_pca",
-    original_file_name = "Computed from PCA inputs",
+    source_type = source_type,
+    original_file_name = if (identical(kind, "normalized_expression")) "Computed from Raw count input" else "Computed from PCA inputs",
     object_type = "data.frame",
     object_name = name,
     rows = if (is.data.frame(data)) nrow(data) else 0L,
@@ -393,9 +461,36 @@ bp_pca_derived_source <- function(id, name, kind, config, result = NULL) {
     example = FALSE,
     derived = TRUE,
     readonly = TRUE,
+    semantic_type = semantic_type,
+    semantic_confirmed = TRUE,
+    semantic_contract_version = "0.1.0",
     relink_required = FALSE,
     derived_kind = kind,
     input_source_ids = Filter(nzchar, c(config$expression_source_id, config$metadata_source_id)),
+    lineage = list(
+      analysis = if (identical(config$input_semantic_type, "raw_counts")) "raw_count_pca" else "pca",
+      contract_version = "0.1.0",
+      parent_source_ids = Filter(nzchar, c(config$expression_source_id, config$metadata_source_id)),
+      recipe_signature = if (identical(config$input_semantic_type, "raw_counts")) bp_raw_count_recipe_signature(config) else "",
+      normalization = preparation$normalization_label %||% if (identical(kind, "normalized_expression")) config$raw_count_normalization else "",
+      parameters = if (identical(config$input_semantic_type, "raw_counts")) list(
+        filter_cpm = config$raw_count_filter_cpm,
+        filter_min_samples = config$raw_count_filter_min_samples,
+        normalization = config$raw_count_normalization,
+        prior_count = config$raw_count_prior_count,
+        variable_feature_count = config$variable_feature_count,
+        center = config$center,
+        scale = config$scale
+      ) else list(
+        transform = config$transform,
+        variable_feature_count = config$variable_feature_count,
+        center = config$center,
+        scale = config$scale
+      ),
+      package_versions = package_versions,
+      created_at = if (is.data.frame(data)) format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z") else NULL
+    ),
+    processing_history = preparation$processing_history %||% list(),
     column_metadata = if (is.data.frame(data)) bp_profile_dataset(data)$column_metadata else list(),
     quality = list(warnings = list()),
     parse_options = list()
@@ -405,21 +500,48 @@ bp_pca_derived_source <- function(id, name, kind, config, result = NULL) {
 bp_pca_upsert_derived_sources <- function(project, config, result = NULL) {
   project <- unserialize(serialize(project, NULL))
   config <- bp_normalize_pca_config(config, project)
-  reserved <- c(pca_scores = "dataset_pca_scores", pca_loadings = "dataset_pca_loadings")
+  input_ids <- Filter(nzchar, c(config$expression_source_id, config$metadata_source_id))
+  parent_sources <- Filter(function(source) source$id %in% input_ids, project$data_sources %||% list())
+  parent_versions <- stats::setNames(
+    lapply(parent_sources, function(source) source$data_version %||% source$passport$content_fingerprint %||% ""),
+    vapply(parent_sources, `[[`, character(1), "id")
+  )
+  reserved <- c(
+    normalized_expression = "dataset_normalized_expression",
+    pca_scores = "dataset_pca_scores",
+    pca_loadings = "dataset_pca_loadings"
+  )
   conflicts <- Filter(function(source) {
     source$name %in% names(reserved) && !isTRUE(source$derived) && !source$id %in% unname(reserved)
   }, project$data_sources %||% list())
-  if (length(conflicts)) stop("数据源名称 pca_scores 和 pca_loadings 为 PCA 派生结果保留，请先重命名冲突的数据源。", call. = FALSE)
+  if (length(conflicts)) stop("数据源名称 normalized_expression、pca_scores 和 pca_loadings 为分析派生结果保留，请先重命名冲突的数据源。", call. = FALSE)
   project$data_sources <- Filter(function(source) !source$id %in% unname(reserved), project$data_sources %||% list())
-  project$data_sources <- c(project$data_sources, list(
+  derived <- list(
     bp_pca_derived_source(reserved[["pca_scores"]], "pca_scores", "scores", config, result),
     bp_pca_derived_source(reserved[["pca_loadings"]], "pca_loadings", "loadings", config, result)
-  ))
+  )
+  if (identical(config$input_semantic_type, "raw_counts")) {
+    derived <- c(list(bp_pca_derived_source(
+      reserved[["normalized_expression"]], "normalized_expression", "normalized_expression", config, result
+    )), derived)
+  }
+  derived <- lapply(derived, function(source) {
+    source$lineage$parent_source_versions <- parent_versions
+    source
+  })
+  project$data_sources <- c(project$data_sources, derived)
   project
 }
 
 bp_pca_config_from_project <- function(project) {
-  bp_normalize_pca_config(project$visual_config$pca %||% list(), project)
+  config <- bp_normalize_pca_config(project$visual_config$pca %||% list(), project)
+  source <- Filter(function(item) identical(item$id, config$expression_source_id), project$data_sources %||% list())
+  if (length(source)) {
+    source <- source[[1]]
+    effective <- bp_data_source_effective_semantic(source)
+    config$input_semantic_type <- if (!isTRUE(source$semantic_confirmed) && identical(effective, "raw_counts")) "unconfirmed_raw_counts" else effective
+  }
+  config
 }
 
 bp_pca_source <- function(project, source_id) {
@@ -434,23 +556,57 @@ bp_generate_pca_analysis_code <- function(project) {
   if (is.null(expression_source)) stop("PCA expression data source is not registered.", call. = FALSE)
   metadata_source <- if (nzchar(config$metadata_source_id)) bp_pca_source(project, config$metadata_source_id) else NULL
   if (nzchar(config$metadata_source_id) && is.null(metadata_source)) stop("PCA metadata data source is not registered.", call. = FALSE)
+  if (identical(config$input_semantic_type, "unconfirmed_raw_counts")) {
+    stop("Raw count 数据语义尚未确认，不能生成分析代码。", call. = FALSE)
+  }
+  if (identical(config$input_semantic_type, "raw_counts") &&
+      !identical(config$raw_count_recipe_confirmed_signature, bp_raw_count_recipe_signature(config))) {
+    stop("Raw count PCA 配方尚未确认，不能生成分析代码。", call. = FALSE)
+  }
   config_source <- paste(capture.output(dput(config)), collapse = "\n")
   core_source <- paste(deparse(bp_pca_compute_core, width.cutoff = 120L), collapse = "\n")
   metadata_symbol <- if (is.null(metadata_source)) "NULL" else bp_symbol_source_name(metadata_source$name)
-  paste(
+  header <- c(
     "# PCA analysis preparation (generated by BioPlotBlocks)",
     paste0(".bioplotblocks_compute_pca <- ", core_source),
-    paste0(".pca_config <- ", config_source),
+    paste0(".pca_config <- ", config_source)
+  )
+  preparation <- if (identical(config$input_semantic_type, "raw_counts")) {
+    raw_core <- paste(deparse(bp_raw_count_prepare_core, width.cutoff = 120L), collapse = "\n")
+    c(
+      "# Raw count recipe: validate -> filter low expression -> normalize -> PCA",
+      paste0(".bioplotblocks_prepare_raw_counts <- ", raw_core),
+      paste0(".raw_preparation <- .bioplotblocks_prepare_raw_counts(", bp_symbol_source_name(expression_source$name), ", .pca_config)"),
+      "normalized_expression <- .raw_preparation$expression",
+      ".pca_config$expression_orientation <- \"genes_by_samples\"",
+      ".pca_config$feature_id_location <- \"column\"",
+      ".pca_config$feature_id_field <- \"Feature\"",
+      ".pca_config$expression_sample_id_location <- \"column_names\"",
+      ".pca_config$expression_sample_id_field <- \"\"",
+      ".pca_config$transform <- \"none\"",
+      paste0(
+        ".pca_analysis <- .bioplotblocks_compute_pca(normalized_expression, ",
+        metadata_symbol, ", .pca_config)"
+      ),
+      ".pca_analysis$preparation <- .raw_preparation"
+    )
+  } else {
     paste0(
       ".pca_analysis <- .bioplotblocks_compute_pca(",
       bp_symbol_source_name(expression_source$name), ", ", metadata_symbol, ", .pca_config)"
-    ),
+    )
+  }
+  footer <- c(
     "pca_scores <- .pca_analysis$scores",
     "pca_loadings <- .pca_analysis$loadings",
     "explained_variance <- .pca_analysis$explained_variance",
-    "rm(.pca_analysis, .pca_config, .bioplotblocks_compute_pca)",
-    sep = "\n"
+    if (identical(config$input_semantic_type, "raw_counts")) {
+      "rm(.raw_preparation, .pca_analysis, .pca_config, .bioplotblocks_prepare_raw_counts, .bioplotblocks_compute_pca)"
+    } else {
+      "rm(.pca_analysis, .pca_config, .bioplotblocks_compute_pca)"
+    }
   )
+  paste(c(header, preparation, footer), collapse = "\n")
 }
 
 bp_pca_setup_lines <- function(project) {

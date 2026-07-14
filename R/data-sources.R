@@ -9,6 +9,10 @@ bp_example_data_source <- function() {
     columns = 11L,
     status = "ready",
     example = TRUE,
+    semantic_type = "generic_table",
+    semantic_confirmed = TRUE,
+    semantic_contract_version = "0.1.0",
+    processing_history = list(),
     relink_required = FALSE,
     column_metadata = list(),
     quality = list(warnings = list()),
@@ -203,8 +207,27 @@ bp_convert_r_object <- function(object, row_names = "preserve", row_name_column 
 
 bp_register_data_source <- function(project, source) {
   project <- unserialize(serialize(project, NULL))
+  source <- bp_normalize_data_source_semantics(source)
   project$data_sources <- project$data_sources %||% list()
   existing <- which(vapply(project$data_sources, function(item) identical(item$id, source$id), logical(1)))
+  source_changed <- FALSE
+  if (length(existing)) {
+    previous <- project$data_sources[[existing[[1]]]]
+    previous_version <- previous$data_version %||% previous$passport$content_fingerprint %||% ""
+    next_version <- source$data_version %||% source$passport$content_fingerprint %||% ""
+    source_changed <- nzchar(previous_version) && nzchar(next_version) && !identical(previous_version, next_version)
+  }
+  if (source_changed) {
+    project$data_sources <- lapply(project$data_sources, function(item) {
+      if (isTRUE(item$derived) && source$id %in% (item$input_source_ids %||% character())) {
+        item$status <- "derived_stale"
+        item$lineage <- item$lineage %||% list()
+        item$lineage$stale_reason <- paste0("Input data source changed: ", source$id)
+        item$lineage$stale_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")
+      }
+      item
+    })
+  }
   if (length(existing)) project$data_sources[[existing[[1]]]] <- source else project$data_sources[[length(project$data_sources) + 1L]] <- source
   project
 }
@@ -546,6 +569,7 @@ bp_data_source_reference_suggestions <- function(project) {
 
 bp_mark_data_sources_for_relink <- function(project) {
   project$data_sources <- lapply(project$data_sources %||% list(), function(source) {
+    source <- bp_normalize_data_source_semantics(source)
     if (!isTRUE(source$example) && !isTRUE(source$derived)) {
       source$status <- "relink_required"
       source$relink_required <- TRUE

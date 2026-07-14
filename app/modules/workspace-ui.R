@@ -54,21 +54,40 @@ bp_visual_section_header <- function(number, title, description = NULL, action =
   )
 }
 
-bp_visual_chart_card <- function(id, chart_type, title, subtitle, icon, requirement, active = FALSE, disabled = FALSE) {
+bp_visual_chart_card <- function(
+  id, chart_type, title, subtitle, icon, requirement,
+  rna_title = title, rna_subtitle = subtitle, rna_requirement = requirement,
+  generic_visible = TRUE, rna_visible = TRUE,
+  active = FALSE, disabled = FALSE
+) {
   shiny::actionButton(
     inputId = id,
     label = htmltools::tagList(
       bp_icon(icon, 22),
       htmltools::tags$span(
-        htmltools::tags$strong(title),
-        htmltools::tags$small(subtitle),
-        htmltools::tags$span(class = "bp-visual-chart-requirement", paste0("数据要求：", requirement))
+        class = "bp-visual-chart-copy",
+        htmltools::tags$strong(class = "bp-visual-chart-name", title),
+        htmltools::tags$small(class = "bp-visual-chart-description", subtitle),
+        htmltools::tags$span(
+          class = "bp-visual-chart-requirement",
+          htmltools::tags$span(class = "bp-visual-chart-requirement-label", "数据要求："),
+          htmltools::tags$span(class = "bp-visual-chart-requirement-copy", requirement)
+        )
       ),
       if (disabled) htmltools::tags$em("后续阶段") else bp_icon("check", 16)
     ),
     class = paste("bp-visual-chart-card", if (active) "is-active", if (disabled) "is-disabled"),
     disabled = disabled,
+    hidden = if (!isTRUE(generic_visible)) "hidden" else NULL,
     `data-chart-type` = chart_type,
+    `data-generic-title` = title,
+    `data-generic-subtitle` = subtitle,
+    `data-generic-requirement` = requirement,
+    `data-rna-title` = rna_title,
+    `data-rna-subtitle` = rna_subtitle,
+    `data-rna-requirement` = rna_requirement,
+    `data-generic-visible` = if (isTRUE(generic_visible)) "true" else "false",
+    `data-rna-visible` = if (isTRUE(rna_visible)) "true" else "false",
     `aria-pressed` = if (active) "true" else "false",
     `aria-label` = paste(title, subtitle, "数据要求", requirement)
   )
@@ -163,8 +182,8 @@ bp_workspace_ui <- function(root) {
         htmltools::tags$aside(
           class = "bp-visual-step-rail",
           `aria-label` = "可视化绘图步骤",
-          bp_visual_step(1, "数据源", "open", "visual-section-source", active = TRUE),
-          bp_visual_step(2, "图表类型", "plot", "visual-section-chart"),
+          bp_visual_step(1, "图表类型", "plot", "visual-section-chart", active = TRUE),
+          bp_visual_step(2, "数据源", "open", "visual-section-source"),
           bp_visual_step(3, "数据字段", "mapping", "visual-section-fields"),
           bp_visual_step(4, "样式", "theme", "visual-section-style"),
           bp_visual_step(5, "标题与坐标轴", "label", "visual-section-labels"),
@@ -184,12 +203,74 @@ bp_workspace_ui <- function(root) {
           htmltools::tags$div(
             class = "bp-visual-builder-scroll",
             htmltools::tags$section(
+              id = "visual-section-chart",
+              class = "bp-visual-config-section",
+              bp_visual_section_header("01", "选择图形", "按几何表现选择图形；通用模式不预设特定分析目的。"),
+              htmltools::tags$div(
+                class = "bp-workflow-mode-card",
+                htmltools::tags$div(
+                  htmltools::tags$strong("工作流模式"),
+                  htmltools::tags$span("两种模式共享同一项目，只切换图表目录与分析语义，不会覆盖原始数据。")
+                ),
+                shiny::radioButtons(
+                  "visual_workflow_mode", label = NULL,
+                  choices = c("通用数据绘图" = "generic", "RNA-seq 引导" = "rna_seq"),
+                  selected = "generic", inline = TRUE
+                )
+              ),
+              htmltools::tags$div(
+                class = "bp-visual-chart-grid",
+                bp_visual_chart_card(
+                  "visual_chart_scatter", "scatter",
+                  "散点图", "比较两个数值变量", "point", "至少 2 个数值型字段（X、Y）",
+                  rna_title = "基因表达散点图", rna_subtitle = "比较两个基因或表达指标",
+                  rna_requirement = "2 个数值型表达字段", active = TRUE
+                ),
+                bp_visual_chart_card(
+                  "visual_chart_volcano", "volcano",
+                  "火山图", "展示差异倍数与显著性", "plot", "logFC + P 值或 FDR",
+                  rna_title = "火山图", rna_subtitle = "展示差异倍数与显著性",
+                  rna_requirement = "logFC + P 值或 FDR", generic_visible = FALSE
+                ),
+                bp_visual_chart_card(
+                  "visual_chart_boxplot", "boxplot",
+                  "箱线图", "比较分组分布", "boxplot", "1 个分组字段 + 1 个数值字段",
+                  rna_title = "表达箱线图", rna_subtitle = "比较实验组表达分布",
+                  rna_requirement = "表达值 + 实验分组"
+                ),
+                bp_visual_chart_card(
+                  "visual_chart_pca", "pca",
+                  "降维图", "对数值矩阵进行降维", "mapping", "数值矩阵；当前方法为 PCA",
+                  rna_title = "PCA 图", rna_subtitle = "检查样本结构、批次与离群",
+                  rna_requirement = "表达矩阵；可选样本分组信息"
+                )
+              ),
+              shiny::uiOutput("visual_chart_compatibility")
+            ),
+            htmltools::tags$section(
               id = "visual-section-source",
               class = "bp-visual-config-section",
-              bp_visual_section_header("01", "选择数据源", "选择已注册且可用的数据；数据预览和字段候选会自动同步。"),
+              bp_visual_section_header("02", "选择数据源", "选择已注册且可用的数据；数据预览和字段候选会自动同步。"),
               htmltools::tags$div(
-                class = "bp-non-pca-only",
-                shiny::selectInput("visual_data_source", label = "数据表", choices = c("正在读取…" = ""), selectize = FALSE, width = "100%"),
+                class = "bp-pca-source-card bp-visual-source-card",
+                shiny::selectInput("visual_pca_expression_source", "数据表 / 数值矩阵 *", choices = c("正在读取…" = ""), selectize = FALSE, width = "100%"),
+                shiny::selectInput(
+                  "visual_pca_orientation", "矩阵方向 *",
+                  choices = c("自动识别" = "auto", "基因 × 样本" = "genes_by_samples", "样本 × 特征" = "samples_by_features"),
+                  width = "100%"
+                ),
+                htmltools::tags$div(
+                  class = "bp-pca-source-grid",
+                  shiny::selectizeInput("visual_pca_feature_id_field", "特征 ID 列", choices = NULL, options = list(placeholder = "自动 / 行名"), width = "100%"),
+                  shiny::selectizeInput("visual_pca_expression_sample_id_field", "表达表样本 ID 列", choices = NULL, options = list(placeholder = "自动 / 列名或行名"), width = "100%")
+                ),
+                shiny::selectInput("visual_pca_metadata_source", "样本信息表（可选）", choices = c("不使用样本信息" = ""), selectize = FALSE, width = "100%"),
+                htmltools::tags$div(
+                  class = "bp-pca-source-grid",
+                  shiny::selectizeInput("visual_pca_metadata_id_field", "样本信息 ID 列", choices = NULL, options = list(placeholder = "自动识别 Sample / ID"), width = "100%"),
+                  shiny::selectInput("visual_pca_unmatched_policy", "不匹配样本", choices = c("严格：必须完全匹配" = "strict", "仅使用交集" = "matched_only"), width = "100%")
+                ),
+                shiny::uiOutput("visual_pca_link_diagnostics"),
                 shiny::uiOutput("visual_data_profile"),
                 htmltools::tags$div(
                   id = "visual_data_preview",
@@ -215,40 +296,7 @@ bp_workspace_ui <- function(root) {
                   )
                 )
               ),
-              htmltools::tags$div(
-                class = "bp-pca-only bp-pca-source-card",
-                hidden = "hidden",
-                shiny::selectInput("visual_pca_expression_source", "表达矩阵 *", choices = c("正在读取…" = ""), selectize = FALSE, width = "100%"),
-                shiny::selectInput(
-                  "visual_pca_orientation", "矩阵方向 *",
-                  choices = c("自动识别" = "auto", "基因 × 样本" = "genes_by_samples", "样本 × 特征" = "samples_by_features"),
-                  width = "100%"
-                ),
-                htmltools::tags$div(
-                  class = "bp-pca-source-grid",
-                  shiny::selectizeInput("visual_pca_feature_id_field", "特征 ID 列", choices = NULL, options = list(placeholder = "自动 / 行名"), width = "100%"),
-                  shiny::selectizeInput("visual_pca_expression_sample_id_field", "表达表样本 ID 列", choices = NULL, options = list(placeholder = "自动 / 列名或行名"), width = "100%")
-                ),
-                shiny::selectInput("visual_pca_metadata_source", "样本信息表（可选）", choices = c("不使用样本信息" = ""), selectize = FALSE, width = "100%"),
-                htmltools::tags$div(
-                  class = "bp-pca-source-grid",
-                  shiny::selectizeInput("visual_pca_metadata_id_field", "样本信息 ID 列", choices = NULL, options = list(placeholder = "自动识别 Sample / ID"), width = "100%"),
-                  shiny::selectInput("visual_pca_unmatched_policy", "不匹配样本", choices = c("严格：必须完全匹配" = "strict", "仅使用交集" = "matched_only"), width = "100%")
-                ),
-                shiny::uiOutput("visual_pca_link_diagnostics")
-              )
-            ),
-            htmltools::tags$section(
-              id = "visual-section-chart",
-              class = "bp-visual-config-section",
-              bp_visual_section_header("02", "选择图表类型", "支持散点图、火山图、箱线图和基于表达矩阵的 PCA 图。"),
-              htmltools::tags$div(
-                class = "bp-visual-chart-grid",
-                bp_visual_chart_card("visual_chart_scatter", "scatter", "散点图", "比较两个连续变量", "point", "至少 2 个数值型字段（X、Y）", active = TRUE),
-                bp_visual_chart_card("visual_chart_volcano", "volcano", "火山图", "差异表达结果", "plot", "倍数变化列 + P 值或 FDR 列"),
-                bp_visual_chart_card("visual_chart_boxplot", "boxplot", "箱线图", "比较组间分布", "boxplot", "1 个分组字段 + 1 个数值字段"),
-                bp_visual_chart_card("visual_chart_pca", "pca", "PCA 图", "样本降维概览", "mapping", "表达矩阵；可选样本分组信息")
-              )
+              shiny::uiOutput("visual_data_semantics")
             ),
             htmltools::tags$section(
               id = "visual-section-fields",
@@ -295,6 +343,7 @@ bp_workspace_ui <- function(root) {
                   shiny::selectizeInput("visual_pca_shape", "形状分组", choices = NULL, options = list(placeholder = "不映射形状"), width = "100%"),
                   shiny::selectizeInput("visual_pca_label", "样本标签", choices = NULL, options = list(placeholder = "不显示标签"), width = "100%")
                 ),
+                shiny::uiOutput("visual_pca_recipe_panel"),
                 htmltools::tags$h3(class = "bp-pca-subheading", "预处理"),
                 htmltools::tags$div(
                   class = "bp-pca-preprocess-grid",
@@ -412,6 +461,7 @@ bp_workspace_ui <- function(root) {
               htmltools::tags$div(
                 class = "bp-pca-only bp-pca-export-actions",
                 hidden = "hidden",
+                shiny::uiOutput("visual_pca_normalized_export"),
                 shiny::downloadButton("download_pca_scores", "导出 PCA 得分 CSV", class = "bp-command-button"),
                 shiny::downloadButton("download_pca_loadings", "导出 PCA 载荷 CSV", class = "bp-command-button")
               )
@@ -540,6 +590,7 @@ bp_workspace_ui <- function(root) {
               )
             )
           ),
+          shiny::uiOutput("analysis_context_view"),
           shiny::uiOutput("analysis_code_view"),
           shiny::uiOutput("code_view"),
           shiny::uiOutput("generated_code_transport"),

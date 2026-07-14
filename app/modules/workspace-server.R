@@ -832,6 +832,16 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
 
   compute_pca_for_config <- function(config = bp_pca_config_from_project(state$project), project = state$project) {
     config <- bp_normalize_pca_config(config, project)
+    expression_source <- bp_pca_source(project, config$expression_source_id)
+    if (is.null(expression_source)) {
+      return(list(ok = FALSE, error = "PCA 表达数据源未注册。", diagnostics = list(), warnings = character()))
+    }
+    effective_semantic <- bp_data_source_effective_semantic(expression_source, pca_source_data(config$expression_source_id, project))
+    config$input_semantic_type <- if (!isTRUE(expression_source$semantic_confirmed) && identical(effective_semantic, "raw_counts")) {
+      "unconfirmed_raw_counts"
+    } else {
+      effective_semantic
+    }
     expression_data <- pca_source_data(config$expression_source_id, project)
     if (is.null(expression_data)) {
       return(list(ok = FALSE, error = "PCA 表达数据源不可用；请重新导入或链接该数据。", diagnostics = list(), warnings = character()))
@@ -874,6 +884,11 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     objects <- shiny::isolate(state$data_objects)
     objects[["dataset_pca_scores"]] <- result$scores
     objects[["dataset_pca_loadings"]] <- result$loadings
+    if (is.data.frame(result$normalized_expression)) {
+      objects[["dataset_normalized_expression"]] <- result$normalized_expression
+    } else {
+      objects[["dataset_normalized_expression"]] <- NULL
+    }
     state$data_objects <- objects
     state$data_preview_source_id <- "dataset_pca_scores"
     TRUE
@@ -941,6 +956,32 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     if (isTRUE(source$example)) bp_default_environment()$df else shiny::isolate(state$data_objects[[source$id]])
   }
 
+  semantic_focus_source <- function(project = state$project) {
+    if (identical(bp_visual_chart_type(project), "pca")) {
+      config <- bp_pca_config_from_project(project)
+      return(bp_pca_source(project, config$expression_source_id))
+    }
+    visual_source(project)
+  }
+
+  semantic_focus_data <- function(source = semantic_focus_source()) {
+    if (is.null(source)) return(NULL)
+    if (isTRUE(source$example)) return(bp_default_environment()$df)
+    state$data_objects[[source$id]]
+  }
+
+  semantic_label <- function(value) {
+    bp_data_semantic_label(value)
+  }
+
+  semantic_display_value <- function(source) {
+    if (isTRUE(source$semantic_confirmed) || isTRUE(source$derived) || isTRUE(source$example)) {
+      source$semantic_type %||% "generic_table"
+    } else {
+      source$semantic_suggestion %||% source$semantic_type %||% "generic_table"
+    }
+  }
+
   visual_current_columns <- function(project = state$project) {
     if (identical(bp_visual_chart_type(project), "pca")) {
       result <- pca_result()
@@ -954,6 +995,22 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
 
   visual_active_config <- function(project = shiny::isolate(state$project)) {
     bp_visual_config_from_project(project)
+  }
+
+  visual_matrix_source_config_from_inputs <- function(project = state$project, expression_source_id = NULL) {
+    current <- bp_pca_config_from_project(project)
+    feature_field <- input$visual_pca_feature_id_field %||% current$feature_id_field
+    sample_field <- input$visual_pca_expression_sample_id_field %||% current$expression_sample_id_field
+    current$expression_source_id <- expression_source_id %||% input$visual_pca_expression_source %||% current$expression_source_id
+    current$metadata_source_id <- input$visual_pca_metadata_source %||% current$metadata_source_id
+    current$expression_orientation <- input$visual_pca_orientation %||% current$expression_orientation
+    current$feature_id_location <- if (nzchar(feature_field %||% "")) "column" else "auto"
+    current$feature_id_field <- feature_field %||% ""
+    current$expression_sample_id_location <- if (nzchar(sample_field %||% "")) "column" else "auto"
+    current$expression_sample_id_field <- sample_field %||% ""
+    current$metadata_sample_id_field <- input$visual_pca_metadata_id_field %||% current$metadata_sample_id_field
+    current$unmatched_sample_policy <- input$visual_pca_unmatched_policy %||% current$unmatched_sample_policy
+    bp_normalize_pca_config(current, project)
   }
 
   visual_label_signature <- function(config) {
@@ -976,6 +1033,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   visual_config_from_inputs <- function() {
     current <- visual_active_config(state$project)
     if (identical(current$chart_type %||% "scatter", "pca")) {
+      source_config <- visual_matrix_source_config_from_inputs(state$project)
       feature_choice <- input$visual_pca_feature_count %||% if (identical(current$variable_feature_count, "all")) "all" else as.character(current$variable_feature_count)
       feature_count <- if (identical(feature_choice, "custom")) {
         input$visual_pca_custom_feature_count %||% current$custom_feature_count
@@ -984,19 +1042,23 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       } else {
         suppressWarnings(as.integer(feature_choice))
       }
-      feature_field <- input$visual_pca_feature_id_field %||% current$feature_id_field
-      sample_field <- input$visual_pca_expression_sample_id_field %||% current$expression_sample_id_field
       return(list(
         chart_type = "pca",
-        expression_source_id = input$visual_pca_expression_source %||% current$expression_source_id,
-        metadata_source_id = input$visual_pca_metadata_source %||% current$metadata_source_id,
-        expression_orientation = input$visual_pca_orientation %||% current$expression_orientation,
-        feature_id_location = if (nzchar(feature_field %||% "")) "column" else "auto",
-        feature_id_field = feature_field %||% "",
-        expression_sample_id_location = if (nzchar(sample_field %||% "")) "column" else "auto",
-        expression_sample_id_field = sample_field %||% "",
-        metadata_sample_id_field = input$visual_pca_metadata_id_field %||% current$metadata_sample_id_field,
-        unmatched_sample_policy = input$visual_pca_unmatched_policy %||% current$unmatched_sample_policy,
+        expression_source_id = source_config$expression_source_id,
+        metadata_source_id = source_config$metadata_source_id,
+        expression_orientation = source_config$expression_orientation,
+        feature_id_location = source_config$feature_id_location,
+        feature_id_field = source_config$feature_id_field,
+        expression_sample_id_location = source_config$expression_sample_id_location,
+        expression_sample_id_field = source_config$expression_sample_id_field,
+        metadata_sample_id_field = source_config$metadata_sample_id_field,
+        unmatched_sample_policy = source_config$unmatched_sample_policy,
+        input_semantic_type = current$input_semantic_type %||% "generic_table",
+        raw_count_filter_cpm = input$visual_pca_filter_cpm %||% current$raw_count_filter_cpm,
+        raw_count_filter_min_samples = input$visual_pca_filter_min_samples %||% current$raw_count_filter_min_samples,
+        raw_count_normalization = input$visual_pca_normalization %||% current$raw_count_normalization,
+        raw_count_prior_count = input$visual_pca_prior_count %||% current$raw_count_prior_count,
+        raw_count_recipe_confirmed_signature = current$raw_count_recipe_confirmed_signature %||% "",
         transform = input$visual_pca_transform %||% current$transform,
         variable_feature_count = feature_count,
         custom_feature_count = input$visual_pca_custom_feature_count %||% current$custom_feature_count,
@@ -1097,36 +1159,57 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     later::later(function() {
       if (identical(shiny::isolate(state$visual_sync_generation), generation)) state$visual_suppress_debounced <- FALSE
     }, 0.75)
+    shiny::updateRadioButtons(
+      session, "visual_workflow_mode",
+      selected = project$analysis_workflow_mode %||% "generic"
+    )
+    session$sendCustomMessage(
+      "bp_visual_workflow_mode",
+      list(value = project$analysis_workflow_mode %||% "generic")
+    )
     session$sendCustomMessage("bp_visual_chart_type", list(value = config$chart_type))
     sources <- project$data_sources %||% list(bp_example_data_source())
-    if (identical(config$chart_type, "pca")) {
-      input_sources <- Filter(function(source) !isTRUE(source$derived), sources)
-      source_values <- vapply(input_sources, function(source) source$id %||% "", character(1))
-      source_labels <- vapply(input_sources, function(source) paste0(
+    is_pca <- identical(config$chart_type, "pca")
+    source_config <- if (is_pca) config else bp_pca_config_from_project(project)
+    if (!is_pca) source_config$expression_source_id <- project$active_data_source_id %||% config$data_source_id %||% "dataset_example"
+    expression_sources <- if (is_pca) Filter(function(source) !isTRUE(source$derived), sources) else sources
+    metadata_sources <- Filter(function(source) !isTRUE(source$derived), sources)
+    source_choices <- function(items) {
+      values <- vapply(items, function(source) source$id %||% "", character(1))
+      labels <- vapply(items, function(source) paste0(
         source$name %||% "data", " · ", toupper(source$source_type %||% "DATA"), " · ",
+        semantic_label(semantic_display_value(source)), " · ",
         if (identical(source$status, "relink_required") || isTRUE(source$relink_required)) "需要重新链接" else "可用"
       ), character(1))
-      keep <- nzchar(source_values)
-      input_choices <- stats::setNames(source_values[keep], source_labels[keep])
-      shiny::updateSelectInput(session, "visual_pca_expression_source", choices = input_choices, selected = config$expression_source_id)
-      shiny::updateSelectInput(
-        session, "visual_pca_metadata_source",
-        choices = c("不使用样本信息" = "", input_choices),
-        selected = config$metadata_source_id
-      )
-      shiny::updateSelectInput(session, "visual_pca_orientation", selected = config$expression_orientation)
-      shiny::updateSelectInput(session, "visual_pca_unmatched_policy", selected = config$unmatched_sample_policy)
+      keep <- nzchar(values)
+      stats::setNames(values[keep], labels[keep])
+    }
+    expression_choices <- source_choices(expression_sources)
+    metadata_source_choices <- source_choices(metadata_sources)
+    shiny::updateSelectInput(
+      session, "visual_pca_expression_source",
+      choices = expression_choices, selected = source_config$expression_source_id
+    )
+    shiny::updateSelectInput(
+      session, "visual_pca_metadata_source",
+      choices = c("不使用样本信息" = "", metadata_source_choices),
+      selected = source_config$metadata_source_id
+    )
+    shiny::updateSelectInput(session, "visual_pca_orientation", selected = source_config$expression_orientation)
+    shiny::updateSelectInput(session, "visual_pca_unmatched_policy", selected = source_config$unmatched_sample_policy)
 
-      expression_data <- pca_source_data(config$expression_source_id, project)
-      expression_columns <- if (is.data.frame(expression_data) || is.matrix(expression_data)) colnames(expression_data) %||% character() else character()
-      expression_choices <- stats::setNames(c("", expression_columns), c("自动 / 行名", expression_columns))
-      shiny::updateSelectizeInput(session, "visual_pca_feature_id_field", choices = expression_choices, selected = config$feature_id_field, server = TRUE)
-      shiny::updateSelectizeInput(session, "visual_pca_expression_sample_id_field", choices = expression_choices, selected = config$expression_sample_id_field, server = TRUE)
+    expression_data <- pca_source_data(source_config$expression_source_id, project)
+    expression_columns <- if (is.data.frame(expression_data) || is.matrix(expression_data)) colnames(expression_data) %||% character() else character()
+    expression_field_choices <- stats::setNames(c("", expression_columns), c("自动 / 行名", expression_columns))
+    shiny::updateSelectizeInput(session, "visual_pca_feature_id_field", choices = expression_field_choices, selected = source_config$feature_id_field, server = TRUE)
+    shiny::updateSelectizeInput(session, "visual_pca_expression_sample_id_field", choices = expression_field_choices, selected = source_config$expression_sample_id_field, server = TRUE)
 
-      metadata_data <- if (nzchar(config$metadata_source_id)) pca_source_data(config$metadata_source_id, project) else NULL
-      metadata_columns <- if (is.data.frame(metadata_data) || is.matrix(metadata_data)) colnames(metadata_data) %||% character() else character()
-      metadata_choices <- stats::setNames(c("", metadata_columns), c("自动识别", metadata_columns))
-      shiny::updateSelectizeInput(session, "visual_pca_metadata_id_field", choices = metadata_choices, selected = config$metadata_sample_id_field, server = TRUE)
+    metadata_data <- if (nzchar(source_config$metadata_source_id)) pca_source_data(source_config$metadata_source_id, project) else NULL
+    metadata_columns <- if (is.data.frame(metadata_data) || is.matrix(metadata_data)) colnames(metadata_data) %||% character() else character()
+    metadata_choices <- stats::setNames(c("", metadata_columns), c("自动识别", metadata_columns))
+    shiny::updateSelectizeInput(session, "visual_pca_metadata_id_field", choices = metadata_choices, selected = source_config$metadata_sample_id_field, server = TRUE)
+
+    if (is_pca) {
 
       result <- compute_pca_for_config(config, project)
       score_columns <- if (isTRUE(result$ok)) names(result$scores) else character()
@@ -1150,6 +1233,10 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
         "custom"
       }
       shiny::updateSelectInput(session, "visual_pca_transform", selected = config$transform)
+      shiny::updateNumericInput(session, "visual_pca_filter_cpm", value = config$raw_count_filter_cpm)
+      shiny::updateNumericInput(session, "visual_pca_filter_min_samples", value = config$raw_count_filter_min_samples)
+      shiny::updateSelectInput(session, "visual_pca_normalization", selected = config$raw_count_normalization)
+      shiny::updateNumericInput(session, "visual_pca_prior_count", value = config$raw_count_prior_count)
       shiny::updateSelectInput(session, "visual_pca_feature_count", selected = feature_selected)
       shiny::updateNumericInput(session, "visual_pca_custom_feature_count", value = config$custom_feature_count)
       shiny::updateSelectInput(session, "visual_pca_missing_policy", selected = config$missing_value_policy)
@@ -1170,18 +1257,6 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       later::later(function() state$visual_syncing <- FALSE, 0.35)
       return(invisible(config))
     }
-    source_values <- vapply(sources, function(source) source$id %||% "", character(1))
-    source_labels <- vapply(sources, function(source) paste0(
-      source$name %||% "data", " · ", toupper(source$source_type %||% "DATA"), " · ",
-      if (identical(source$status, "relink_required") || isTRUE(source$relink_required)) "需要重新链接" else "可用"
-    ), character(1))
-    keep <- nzchar(source_values)
-    shiny::updateSelectInput(
-      session, "visual_data_source",
-      choices = stats::setNames(source_values[keep], source_labels[keep]),
-      selected = config$data_source_id
-    )
-
     source <- visual_source(project)
     data <- if (is.null(source)) NULL else if (isTRUE(source$example)) bp_default_environment()$df else shiny::isolate(state$data_objects[[source$id]])
     profile <- if (is.null(source)) data.frame(name = character(), type = character()) else bp_visual_column_profile(source, data)
@@ -1287,9 +1362,9 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   })
 
   output$visual_data_profile <- shiny::renderUI({
-    source <- visual_source(state$project)
+    source <- semantic_focus_source(state$project)
     if (is.null(source)) return(htmltools::tags$div(class = "bp-visual-validation-card is-invalid", "当前项目没有可用数据源。"))
-    data <- if (isTRUE(source$example)) bp_default_environment()$df else state$data_objects[[source$id]]
+    data <- semantic_focus_data(source)
     rows <- if (is.data.frame(data)) nrow(data) else source$rows %||% "—"
     columns <- if (is.data.frame(data)) ncol(data) else source$columns %||% length(source$column_metadata %||% list())
     status <- if (identical(source$status, "relink_required") || isTRUE(source$relink_required)) "需要重新链接" else "可用于绘图"
@@ -1302,11 +1377,11 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   })
 
   output$visual_active_data_preview <- shiny::renderUI({
-    source <- visual_source(state$project)
+    source <- semantic_focus_source(state$project)
     if (is.null(source)) {
       return(htmltools::tags$div(class = "bp-visual-data-preview-empty", bp_icon("warning", 18), "当前项目没有可预览的数据源。"))
     }
-    data <- if (isTRUE(source$example)) bp_default_environment()$df else state$data_objects[[source$id]]
+    data <- semantic_focus_data(source)
     if (is.null(data) || !is.data.frame(data)) {
       return(htmltools::tags$div(
         class = "bp-visual-data-preview-empty",
@@ -1328,6 +1403,203 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     )
   })
   shiny::outputOptions(output, "visual_active_data_preview", suspendWhenHidden = FALSE)
+
+  output$visual_data_semantics <- shiny::renderUI({
+    source <- semantic_focus_source(state$project)
+    if (is.null(source)) return(NULL)
+    data <- semantic_focus_data(source)
+    passport <- source$passport
+    if (is.null(passport) && (is.data.frame(data) || is.matrix(data))) passport <- bp_build_data_passport(data, source)
+    semantic <- bp_data_source_effective_semantic(source, data)
+    confirmed <- isTRUE(source$semantic_confirmed) || isTRUE(source$derived) || isTRUE(source$example)
+    orientation_label <- switch(
+      passport$orientation_suggestion %||% "unknown",
+      genes_by_samples = "基因 × 样本",
+      samples_by_features = "样本 × 特征",
+      ambiguous = "需要用户确认",
+      "未知"
+    )
+    htmltools::tags$article(
+      class = paste("bp-data-passport", if (confirmed) "is-confirmed" else "needs-confirmation"),
+      htmltools::tags$div(
+        class = "bp-data-passport-heading",
+        htmltools::tags$div(
+          htmltools::tags$strong("数据护照"),
+          htmltools::tags$span(source$name %||% "data")
+        ),
+        htmltools::tags$span(
+          class = "bp-data-passport-state",
+          if (confirmed) paste0("已确认 · ", semantic_label(semantic)) else paste0("建议 · ", semantic_label(semantic))
+        )
+      ),
+      htmltools::tags$div(
+        class = "bp-data-passport-grid",
+        htmltools::tags$div(htmltools::tags$span("结构"), htmltools::tags$strong(passport$structure %||% source$object_type %||% "data.frame")),
+        htmltools::tags$div(htmltools::tags$span("行 × 列"), htmltools::tags$strong(paste0(format(passport$rows %||% source$rows %||% 0L, big.mark = ","), " × ", format(passport$columns %||% source$columns %||% 0L, big.mark = ",")))),
+        htmltools::tags$div(htmltools::tags$span("矩阵方向"), htmltools::tags$strong(orientation_label)),
+        htmltools::tags$div(htmltools::tags$span("特征 ID"), htmltools::tags$strong(passport$feature_id_suggestion %||% "未识别"))
+      ),
+      if (length(passport$evidence %||% character())) htmltools::tags$details(
+        class = "bp-data-passport-evidence",
+        htmltools::tags$summary("查看识别依据"),
+        htmltools::tags$ul(lapply(passport$evidence, htmltools::tags$li))
+      ),
+      if (isTRUE(source$derived)) {
+        lineage <- source$lineage %||% list()
+        htmltools::tags$div(
+          class = "bp-data-lineage-summary",
+          bp_icon("open", 16),
+          htmltools::tags$span(paste0(
+            "只读派生数据 · ", lineage$normalization %||% lineage$analysis %||% "analysis",
+            if (length(lineage$parent_source_ids %||% character())) paste0(" · 来源 ", paste(lineage$parent_source_ids, collapse = " + ")) else ""
+          ))
+        )
+      } else if (!isTRUE(source$example)) {
+        htmltools::tags$div(
+          class = "bp-data-semantic-confirm",
+          shiny::selectInput(
+            "visual_semantic_type", "确认数据语义",
+            choices = bp_data_semantic_choices(), selected = if (confirmed) source$semantic_type else semantic,
+            width = "100%"
+          ),
+          shiny::actionButton(
+            "visual_confirm_semantic", if (confirmed) "更新确认" else "确认数据类型",
+            icon = shiny::icon("check"), class = "bp-command-button bp-command-primary"
+          )
+        )
+      }
+    )
+  })
+  shiny::outputOptions(output, "visual_data_semantics", suspendWhenHidden = FALSE)
+
+  output$visual_chart_compatibility <- shiny::renderUI({
+    source <- semantic_focus_source(state$project)
+    data <- semantic_focus_data(source)
+    chart_type <- bp_visual_chart_type(state$project)
+    compatibility <- bp_chart_data_compatibility(source, chart_type, data)
+    status_label <- switch(
+      compatibility$status,
+      direct = "可直接使用", transform = "需要转换", supplement = "需要补充信息",
+      incompatible = "不可用", relink = "需要重新链接", failed = "分析失败", "待检查"
+    )
+    htmltools::tags$div(
+      class = paste("bp-chart-compatibility", paste0("is-", compatibility$status)),
+      htmltools::tags$strong(paste0(status_label, "：", source$name %||% "data")),
+      htmltools::tags$span(compatibility$reason),
+      if (nzchar(compatibility$action %||% "")) htmltools::tags$em(paste0("下一步：", compatibility$action))
+    )
+  })
+  shiny::outputOptions(output, "visual_chart_compatibility", suspendWhenHidden = FALSE)
+
+  output$visual_pca_recipe_panel <- shiny::renderUI({
+    if (!identical(bp_visual_chart_type(state$project), "pca")) return(NULL)
+    config <- bp_pca_config_from_project(state$project)
+    source <- bp_pca_source(state$project, config$expression_source_id)
+    data <- if (is.null(source)) NULL else pca_source_data(source$id, state$project)
+    semantic <- bp_data_source_effective_semantic(source, data)
+    if (!isTRUE(source$semantic_confirmed) && identical(semantic, "raw_counts")) {
+      return(htmltools::tags$div(
+        class = "bp-pca-recipe-card needs-confirmation",
+        htmltools::tags$strong("先确认 Raw count 数据语义"),
+        htmltools::tags$p("检测结果只是建议。确认后才会显示过滤和标准化配方，软件不会静默执行关键分析。")
+      ))
+    }
+    if (!identical(semantic, "raw_counts")) {
+      return(htmltools::tags$div(
+        class = "bp-pca-recipe-card is-generic",
+        htmltools::tags$strong("通用表达矩阵 PCA"),
+        htmltools::tags$p("当前数据未确认为 Raw count；将使用下方的常规转换、零方差过滤和高变特征设置。")
+      ))
+    }
+    expected <- bp_raw_count_recipe_signature(config)
+    confirmed <- identical(config$raw_count_recipe_confirmed_signature, expected)
+    edge_r_available <- requireNamespace("edgeR", quietly = TRUE)
+    htmltools::tags$details(
+      class = paste("bp-pca-recipe-card", if (confirmed) "is-confirmed" else "needs-confirmation"),
+      open = "open",
+      htmltools::tags$summary(if (confirmed) "Raw count PCA 配方已确认" else "为 PCA 确认 Raw count 分析配方"),
+      htmltools::tags$ol(
+        htmltools::tags$li("检查非负整数计数、特征 ID 和样本 ID"),
+        htmltools::tags$li("按 CPM 阈值过滤低表达特征"),
+        htmltools::tags$li(if (identical(config$raw_count_normalization, "tmm_logcpm")) "使用 edgeR TMM 校正并转换为 logCPM" else "使用 log2(count + 1) 快速探索转换"),
+        htmltools::tags$li("移除无效/零方差特征并选择高变特征"),
+        htmltools::tags$li("使用 stats::prcomp() 生成得分与载荷")
+      ),
+      htmltools::tags$div(
+        class = "bp-pca-recipe-grid",
+        shiny::numericInput("visual_pca_filter_cpm", "CPM 阈值", value = config$raw_count_filter_cpm, min = 0, step = 0.1, width = "100%"),
+        shiny::numericInput("visual_pca_filter_min_samples", "至少满足的样本数", value = config$raw_count_filter_min_samples, min = 1, step = 1, width = "100%"),
+        shiny::selectInput(
+          "visual_pca_normalization", "标准化与转换",
+          choices = stats::setNames(
+            c("tmm_logcpm", "log2p1"),
+            c(paste0("edgeR TMM + logCPM", if (!edge_r_available) "（当前不可用）" else ""), "log2(count + 1) 快速探索")
+          ),
+          selected = config$raw_count_normalization, width = "100%"
+        ),
+        shiny::numericInput("visual_pca_prior_count", "logCPM prior.count", value = config$raw_count_prior_count, min = 0.01, step = 0.5, width = "100%")
+      ),
+      htmltools::tags$div(
+        class = "bp-pca-recipe-runtime",
+        bp_icon(if (edge_r_available) "check" else "warning", 16),
+        if (edge_r_available) paste0("edgeR ", as.character(utils::packageVersion("edgeR")), " 可用") else "edgeR 未安装；请选择基础快速探索配方"
+      ),
+      shiny::actionButton(
+        "visual_pca_confirm_recipe",
+        if (confirmed) "使用当前设置重新生成" else "使用当前设置并生成",
+        icon = shiny::icon("play"), class = "bp-command-button bp-command-primary"
+      )
+    )
+  })
+  shiny::outputOptions(output, "visual_pca_recipe_panel", suspendWhenHidden = FALSE)
+
+  shiny::observeEvent(input$visual_workflow_mode, {
+    requested <- input$visual_workflow_mode %||% "generic"
+    if (!requested %in% c("generic", "rna_seq") || identical(requested, state$project$analysis_workflow_mode %||% "generic")) return()
+    project <- bp_clone_project(state$project)
+    project$analysis_workflow_mode <- requested
+    if (identical(requested, "generic") && identical(bp_visual_chart_type(project), "volcano")) {
+      switched <- switch_visual_chart(
+        "scatter", project = project, record_history = TRUE,
+        origin = "workflow_mode", allow_example_fallback = TRUE
+      )
+      if (isTRUE(switched)) return()
+    }
+    commit(project, record_history = TRUE, origin = "workflow_mode")
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(input$visual_confirm_semantic, {
+    source <- semantic_focus_source(state$project)
+    data <- semantic_focus_data(source)
+    if (is.null(source) || is.null(data)) {
+      shiny::showNotification("当前数据源不可用；请先重新链接。", type = "warning")
+      return()
+    }
+    project <- tryCatch(
+      bp_confirm_data_source_semantic(state$project, source$id, input$visual_semantic_type %||% "generic_table", data),
+      error = identity
+    )
+    if (inherits(project, "error")) {
+      shiny::showNotification(conditionMessage(project), type = "error")
+      return()
+    }
+    if (identical(bp_visual_chart_type(project), "pca")) {
+      config <- bp_pca_config_from_project(project)
+      confirmed_source <- bp_pca_source(project, config$expression_source_id)
+      config$input_semantic_type <- confirmed_source$semantic_type %||% "generic_table"
+      config$raw_count_recipe_confirmed_signature <- ""
+      project$visual_config$pca <- bp_normalize_pca_config(config, project)
+      project$analysis_recipes <- project$analysis_recipes %||% list()
+      project$analysis_recipes$pca <- NULL
+    }
+    commit(project, record_history = TRUE, origin = "data_semantic")
+    sync_visual_inputs(project, bp_visual_config_from_project(project))
+    if (identical(input$visual_semantic_type, "raw_counts")) {
+      shiny::showNotification("已确认 Raw count。请检查并确认图表专属分析配方。", type = "message", duration = 8)
+    } else {
+      shiny::showNotification(paste0("数据语义已确认为：", semantic_label(input$visual_semantic_type), "。"), type = "message")
+    }
+  }, ignoreInit = TRUE)
 
   output$visual_pca_link_diagnostics <- shiny::renderUI({
     if (!identical(bp_visual_chart_type(state$project), "pca")) return(NULL)
@@ -1375,7 +1647,16 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
           "PC1：", sprintf("%.1f%%", variance[["PC1"]] %||% NA_real_),
           if ("PC2" %in% names(variance)) paste0(" · PC2：", sprintf("%.1f%%", variance[["PC2"]])) else ""
         )),
+        if (!is.null(result$preparation)) htmltools::tags$div(paste0(
+          "Raw count 配方：", result$preparation$normalization_label,
+          " · 低表达过滤保留 ", result$preparation$retained_feature_count, " / ", result$preparation$original_feature_count, " 个特征"
+        )),
         if ((result$zero_variance_removed %||% 0L) > 0L) htmltools::tags$div(paste0("已移除 ", result$zero_variance_removed, " 个零方差特征。"))
+      ),
+      if (is.data.frame(result$normalized_expression)) htmltools::tags$details(
+        class = "bp-visual-data-preview bp-pca-score-preview",
+        htmltools::tags$summary("预览标准化表达矩阵（前 12 行 · 全部列）"),
+        bp_data_preview_table(result$normalized_expression, rows = 12L, columns = ncol(result$normalized_expression), row_numbers = TRUE)
       ),
       htmltools::tags$details(
         class = "bp-visual-data-preview bp-pca-score-preview",
@@ -1488,22 +1769,37 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       class = "bp-data-source-manager",
       lapply(sources, function(source) {
         is_active <- identical(source$id, active_id)
-        ready <- !identical(source$status, "relink_required") && !isTRUE(source$relink_required) && (isTRUE(source$example) || !is.null(state$data_objects[[source$id]]))
+        stale <- identical(source$status, "derived_stale")
+        ready <- !stale && !identical(source$status, "relink_required") && !isTRUE(source$relink_required) && (isTRUE(source$example) || !is.null(state$data_objects[[source$id]]))
         htmltools::tags$article(
-          class = paste("bp-data-source-card", if (is_active) "is-active", if (!ready) "needs-relink"),
+          class = paste("bp-data-source-card", if (is_active) "is-active", if (!ready && !stale) "needs-relink", if (stale) "is-stale"),
           htmltools::tags$div(
             class = "bp-data-source-card-main",
             htmltools::tags$div(
               htmltools::tags$strong(source$name),
               if (is_active) htmltools::tags$span(class = "bp-active-source-label", "Active plot data"),
               if (isTRUE(source$example)) htmltools::tags$span(class = "bp-example-source-label", "Example"),
-              if (isTRUE(source$derived)) htmltools::tags$span(class = "bp-example-source-label", "Derived · read only")
+              if (isTRUE(source$derived)) htmltools::tags$span(class = "bp-example-source-label", if (stale) "Derived · stale" else "Derived · read only"),
+              htmltools::tags$span(
+                class = paste("bp-semantic-source-label", if (isTRUE(source$semantic_confirmed)) "is-confirmed"),
+                semantic_label(semantic_display_value(source))
+              )
             ),
             htmltools::tags$p(paste0(
               toupper(source$source_type %||% "data"), " · ", format(source$rows %||% 0L, big.mark = ","), " rows × ", source$columns %||% 0L, " columns",
               if (!is.null(source$object_name) && !identical(source$object_name, source$name)) paste0(" · object ", source$object_name) else ""
             )),
-            htmltools::tags$small(if (ready) source$original_file_name %||% "Built-in deterministic dataset" else paste0("Relink required: ", source$original_file_name %||% "original file"))
+            htmltools::tags$small(if (stale) {
+              "Input data or analysis parameters changed; regenerate this derived result."
+            } else if (ready) {
+              source$original_file_name %||% "Built-in deterministic dataset"
+            } else {
+              paste0("Relink required: ", source$original_file_name %||% "original file")
+            }),
+            if (isTRUE(source$derived) && length(source$lineage$parent_source_ids %||% character())) htmltools::tags$small(
+              class = "bp-data-source-lineage",
+              paste0("Lineage: ", paste(source$lineage$parent_source_ids, collapse = " + "), " → ", source$name)
+            )
           ),
           htmltools::tags$div(
             class = "bp-data-source-card-actions",
@@ -1652,6 +1948,9 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     if (imported$format %in% c("rds", "rdata", "rda")) return(bp_r_object_browser(imported))
     profile <- imported$profile
     warnings <- profile$warnings %||% list()
+    passport <- bp_build_data_passport(imported$data)
+    semantic_labels <- stats::setNames(names(bp_data_semantic_choices(include_auto = TRUE)), unname(bp_data_semantic_choices(include_auto = TRUE)))
+    suggested_label <- semantic_labels[[passport$suggested_semantic_type]] %||% passport$suggested_semantic_type
     htmltools::tagList(
       htmltools::tags$h3("2. Review and map"),
       htmltools::tags$div(
@@ -1664,6 +1963,20 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
         htmltools::tags$div(htmltools::tags$span("Duplicate rows"), htmltools::tags$strong(format(profile$duplicate_rows, big.mark = ",")))
       ),
       shiny::textInput("data_source_name", "Data object name", value = imported$suggested_name),
+      htmltools::tags$div(
+        class = "bp-import-semantic-suggestion",
+        htmltools::tags$strong(paste0("数据语义建议：可能是 ", suggested_label)),
+        htmltools::tags$span(paste0(" · 置信度 ", sprintf("%.0f%%", 100 * passport$confidence))),
+        htmltools::tags$ul(lapply(passport$evidence, htmltools::tags$li))
+      ),
+      shiny::selectInput(
+        "data_semantic_type", "确认数据语义",
+        choices = bp_data_semantic_choices(include_auto = TRUE), selected = "auto", width = "100%"
+      ),
+      shiny::checkboxInput(
+        "data_register_only", "只注册数据源，不修改当前通用图表映射",
+        value = identical(state$project$analysis_workflow_mode %||% "generic", "rna_seq")
+      ),
       htmltools::tags$details(class = "bp-import-section", open = "open", htmltools::tags$summary("Data preview · first 30 rows"), bp_data_preview_table(imported$data)),
       htmltools::tags$details(class = "bp-import-section", htmltools::tags$summary("Column types and quality"), bp_data_column_table(profile)),
       if (length(warnings)) htmltools::tags$div(
@@ -1671,8 +1984,12 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
         htmltools::tags$strong(paste("Quality checks ·", length(warnings))),
         htmltools::tags$ul(lapply(warnings, function(warning) htmltools::tags$li(class = paste0("is-", warning$level), warning$message)))
       ),
-      htmltools::tags$div(class = "bp-mapping-title", htmltools::tags$strong("Manual column mapping"), htmltools::tags$span("Mappings are confirmed only when you click Use data in plot.")),
-      bp_data_mapping_controls(imported, state$project)
+      htmltools::tags$details(
+        class = "bp-import-section",
+        htmltools::tags$summary("通用绘图字段映射（取消“只注册”时使用）"),
+        htmltools::tags$div(class = "bp-mapping-title", htmltools::tags$strong("Manual column mapping"), htmltools::tags$span("Raw count 引导模式无需在导入时设置 X/Y。")),
+        bp_data_mapping_controls(imported, state$project)
+      )
     )
   })
 
@@ -1759,6 +2076,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
           quality = list(missing_values = profile$missing_values, duplicate_rows = profile$duplicate_rows, duplicate_column_names = profile$duplicate_column_names, warnings = profile$warnings),
           conversion = conversion, parse_options = list()
         )
+        source <- bp_enrich_data_source(source, data, if (length(matches)) matches[[1]] else NULL)
         project <- bp_register_data_source(project, source)
         state$data_objects[[source_id]] <- data
         registered_ids <- c(registered_ids, source_id)
@@ -1797,13 +2115,14 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     }
     roles <- c("x", "y", "color", "fill", "shape", "size", "alpha", "label", "group")
     mapping <- stats::setNames(lapply(roles, function(role) input[[paste0("data_map_", role)]] %||% ""), roles)
-    if (!nzchar(mapping$x) || !nzchar(mapping$y)) {
+    register_only <- isTRUE(input$data_register_only)
+    if (!register_only && (!nzchar(mapping$x) || !nzchar(mapping$y))) {
       shiny::showNotification("Choose both X and Y columns.", type = "error")
       return()
     }
     updated_profile <- bp_profile_dataset(data)
     metadata_by_name <- stats::setNames(updated_profile$column_metadata, names(data))
-    for (role in c("size", "alpha")) {
+    for (role in if (register_only) character() else c("size", "alpha")) {
       column <- mapping[[role]]
       if (nzchar(column) && !metadata_by_name[[column]]$recommended_type %in% c("numeric", "integer")) {
         shiny::showNotification(paste(toupper(role), "requires a numeric column in the first-stage mapper."), type = "error")
@@ -1830,6 +2149,26 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       parse_options = imported$parse_options,
       conversions = conversions
     )
+    previous <- Filter(function(item) identical(item$id, source_id), state$project$data_sources %||% list())
+    source <- bp_enrich_data_source(source, data, if (length(previous)) previous[[1]] else NULL)
+    requested_semantic <- input$data_semantic_type %||% "auto"
+    if (!identical(requested_semantic, "auto")) {
+      source$semantic_type <- bp_normalize_semantic_type(requested_semantic)
+      source$semantic_confirmed <- TRUE
+      source$semantic_confirmed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")
+      source$semantic_user_override <- !identical(source$semantic_type, source$semantic_suggestion)
+    }
+    if (register_only) {
+      project <- bp_register_data_source(state$project, source)
+      if (identical(source$semantic_type, "raw_counts") && isTRUE(source$semantic_confirmed)) project$analysis_workflow_mode <- "rna_seq"
+      state$data_objects[[source_id]] <- data
+      state$data_preview_source_id <- source_id
+      commit(project, record_history = TRUE, origin = "data_import")
+      state$data_import <- NULL
+      shiny::removeModal()
+      shiny::showNotification(paste0("Data source '", name, "' was registered without changing the current plot mapping."), type = "message")
+      return()
+    }
     project <- bp_apply_dataset_mapping(state$project, source, mapping)
     state$data_objects[[source_id]] <- data
     state$data_preview_source_id <- source_id
@@ -1996,6 +2335,27 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
 
   output$expression_fragment <- shiny::renderText({
     input$raw_expression_value %||% state$expression_edit$value %||% ""
+  })
+
+  output$analysis_context_view <- shiny::renderUI({
+    if (!identical(bp_visual_chart_type(state$project), "pca")) return(NULL)
+    config <- bp_pca_config_from_project(state$project)
+    expression_source <- bp_pca_source(state$project, config$expression_source_id)
+    metadata_source <- if (nzchar(config$metadata_source_id)) bp_pca_source(state$project, config$metadata_source_id) else NULL
+    raw_counts <- identical(config$input_semantic_type, "raw_counts")
+    packages <- c(
+      paste0("R ", getRversion()),
+      paste0("stats ", getRversion()),
+      paste0("ggplot2 ", as.character(utils::packageVersion("ggplot2"))),
+      if (raw_counts && requireNamespace("edgeR", quietly = TRUE)) paste0("edgeR ", as.character(utils::packageVersion("edgeR")))
+    )
+    htmltools::tags$div(
+      class = "bp-analysis-context",
+      htmltools::tags$div(htmltools::tags$span("分析输入"), htmltools::tags$strong(paste0(expression_source$name %||% "data", if (!is.null(metadata_source)) paste0(" + ", metadata_source$name) else ""))),
+      htmltools::tags$div(htmltools::tags$span("数据语义"), htmltools::tags$strong(semantic_label(config$input_semantic_type))),
+      htmltools::tags$div(htmltools::tags$span("分析配方"), htmltools::tags$strong(if (raw_counts) paste0(config$raw_count_normalization, " → prcomp") else paste0(config$transform, " → prcomp"))),
+      htmltools::tags$div(htmltools::tags$span("运行依赖"), htmltools::tags$strong(paste(packages, collapse = " · ")))
+    )
   })
 
   output$analysis_code_view <- shiny::renderUI({
@@ -2254,26 +2614,26 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     if (identical(mode, "visual")) repair_visual_boxplot_grouping(record_history = TRUE)
   }, ignoreInit = FALSE)
 
-  shiny::observeEvent(input$visual_data_source, {
+  shiny::observeEvent(input$visual_pca_expression_source, {
     if (isTRUE(state$visual_syncing)) return()
     if (identical(bp_visual_chart_type(state$project), "pca")) return()
-    source_id <- input$visual_data_source %||% ""
+    source_id <- input$visual_pca_expression_source %||% ""
     current_id <- state$project$active_data_source_id %||% "dataset_example"
     if (!nzchar(source_id) || identical(source_id, current_id)) return()
     sources <- Filter(function(source) identical(source$id, source_id), state$project$data_sources %||% list())
     if (!length(sources)) return()
     source <- sources[[1]]
-    if (isTRUE(source$readonly) && !identical(action, "preview")) return()
     result <- tryCatch(switch_registered_data_source(state$project, source), error = identity)
     if (inherits(result, "error")) {
       state$visual_syncing <- TRUE
-      shiny::updateSelectInput(session, "visual_data_source", selected = current_id)
+      shiny::updateSelectInput(session, "visual_pca_expression_source", selected = current_id)
       later::later(function() state$visual_syncing <- FALSE, 0.35)
       shiny::showNotification(conditionMessage(result), type = "warning", duration = 8)
       return()
     }
-    config <- bp_visual_config_from_project(result$project)
     result$project$visual_config <- result$project$visual_config %||% list()
+    result$project$visual_config$pca <- visual_matrix_source_config_from_inputs(result$project, source$id)
+    config <- bp_visual_config_from_project(result$project)
     result$project$visual_config$active_chart_type <- config$chart_type
     result$project$visual_config[[config$chart_type]] <- config
     commit(result$project, result$root_instance_id, origin = "visual_source")
@@ -2283,6 +2643,27 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     sync_visual_inputs(result$project, config)
     validation <- bp_validate_visual_config(config, result$columns)
     if (isTRUE(input$visual_auto_preview) && isTRUE(validation$valid)) start_preview()
+  }, ignoreInit = TRUE)
+
+  visual_matrix_source_reactive <- shiny::debounce(shiny::reactive(list(
+    orientation = input$visual_pca_orientation,
+    feature_id_field = input$visual_pca_feature_id_field,
+    expression_sample_id_field = input$visual_pca_expression_sample_id_field,
+    metadata_source_id = input$visual_pca_metadata_source,
+    metadata_sample_id_field = input$visual_pca_metadata_id_field,
+    unmatched_sample_policy = input$visual_pca_unmatched_policy
+  )), 480)
+  shiny::observeEvent(visual_matrix_source_reactive(), {
+    if (isTRUE(state$visual_syncing)) return()
+    if (identical(bp_visual_chart_type(state$project), "pca")) return()
+    current <- bp_pca_config_from_project(state$project)
+    expression_source_id <- state$project$active_data_source_id %||% "dataset_example"
+    incoming <- visual_matrix_source_config_from_inputs(state$project, expression_source_id)
+    if (identical(incoming, current)) return()
+    project <- bp_clone_project(state$project)
+    project$visual_config <- project$visual_config %||% list()
+    project$visual_config$pca <- incoming
+    commit(project, record_history = TRUE, origin = "visual_source_config")
   }, ignoreInit = TRUE)
 
   visual_recommendation_for <- function(chart_type, source, data) {
@@ -2304,49 +2685,65 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     config
   }
 
-  switch_visual_chart <- function(chart_type) {
+  switch_visual_chart <- function(
+    chart_type, project = shiny::isolate(state$project), record_history = TRUE,
+    origin = "visual_source", allow_example_fallback = FALSE
+  ) {
     chart_type <- if (chart_type %in% c("scatter", "volcano", "boxplot", "pca")) chart_type else "scatter"
-    if (identical(bp_visual_chart_type(state$project), chart_type)) {
-      sync_visual_inputs(state$project, bp_visual_config_from_project(state$project))
-      return()
+    workflow <- project$analysis_workflow_mode %||% "generic"
+    if (identical(chart_type, "volcano") && !identical(workflow, "rna_seq")) {
+      shiny::showNotification("火山图仅在 RNA-seq 引导中提供；请先切换工作流模式。", type = "warning")
+      sync_visual_inputs(project, bp_visual_config_from_project(project))
+      return(FALSE)
+    }
+    if (identical(bp_visual_chart_type(project), chart_type)) {
+      sync_visual_inputs(project, bp_visual_config_from_project(project))
+      return(TRUE)
     }
     if (identical(chart_type, "pca")) {
-      config <- bp_normalize_pca_config(state$project$visual_config$pca %||% bp_pca_defaults(state$project), state$project)
-      active <- visual_source(state$project)
-      if (!nzchar(config$expression_source_id %||% "") || isTRUE(bp_pca_source(state$project, config$expression_source_id)$derived)) {
+      config <- bp_normalize_pca_config(project$visual_config$pca %||% bp_pca_defaults(project), project)
+      active <- visual_source(project)
+      if (!nzchar(config$expression_source_id %||% "") || isTRUE(bp_pca_source(project, config$expression_source_id)$derived)) {
         config$expression_source_id <- if (!is.null(active) && !isTRUE(active$derived)) active$id else "dataset_example"
       }
-      result <- bp_apply_visual_pca_config(state$project, config, registry)
-      if (state$project$name %in% c("Untitled scatter plot", "Untitled volcano plot", "Untitled boxplot")) {
+      result <- bp_apply_visual_pca_config(project, config, registry)
+      if (project$name %in% c("Untitled scatter plot", "Untitled volcano plot", "Untitled boxplot")) {
         result$project$name <- "Untitled PCA plot"
         shiny::updateTextInput(session, "project_name", value = result$project$name)
       }
-      commit(result$project, result$root_instance_id, origin = "visual_source")
+      commit(result$project, result$root_instance_id, record_history = record_history, origin = origin)
       sync_visual_inputs(result$project, result$config)
       computed <- compute_pca_for_config(result$config, result$project)
       if (!isTRUE(computed$ok)) {
         shiny::showNotification(computed$error %||% "PCA 数据配置需要调整。", type = "warning", duration = 10)
       } else {
         cache_pca_result(computed, result$project)
-        shiny::showNotification("已切换到 PCA 图；请检查样本关联和预处理设置。", type = "message")
+        shiny::showNotification(
+          if (identical(workflow, "rna_seq")) "已切换到 PCA 图；请检查样本关联和预处理设置。" else "已切换到降维图；当前使用 PCA 方法。",
+          type = "message"
+        )
         if (isTRUE(input$visual_auto_preview)) start_preview()
       }
-      return()
+      return(TRUE)
     }
-    config <- state$project$visual_config[[chart_type]] %||% switch(
+    config <- project$visual_config[[chart_type]] %||% switch(
       chart_type,
-      volcano = bp_visual_volcano_defaults(state$project),
-      boxplot = bp_visual_boxplot_defaults(state$project),
-      bp_visual_scatter_defaults(state$project)
+      volcano = bp_visual_volcano_defaults(project),
+      boxplot = bp_visual_boxplot_defaults(project),
+      bp_visual_scatter_defaults(project)
     )
-    config <- bp_visual_repair_cross_chart_labels(config, chart_type, state$project)
+    config <- bp_visual_repair_cross_chart_labels(config, chart_type, project)
     config$chart_type <- chart_type
-    active <- visual_source(state$project)
-    target_source_id <- if (!is.null(active) && isTRUE(active$derived)) config$data_source_id %||% "dataset_example" else state$project$active_data_source_id %||% "dataset_example"
-    source <- bp_pca_source(state$project, target_source_id)
+    active <- visual_source(project)
+    target_source_id <- if (!is.null(active) && isTRUE(active$derived)) config$data_source_id %||% "dataset_example" else project$active_data_source_id %||% "dataset_example"
+    source <- bp_pca_source(project, target_source_id)
     if (is.null(source) || isTRUE(source$derived)) source <- bp_example_data_source()
     data <- if (isTRUE(source$example)) bp_default_environment()$df else state$data_objects[[source$id]]
-    if (is.null(data)) return()
+    if (is.null(data) && isTRUE(allow_example_fallback)) {
+      source <- bp_example_data_source()
+      data <- bp_default_environment()$df
+    }
+    if (is.null(data)) return(FALSE)
     recommendation <- visual_recommendation_for(chart_type, source, data)
     config$data_source_id <- source$id
     columns <- bp_data_source_columns(source, data)
@@ -2355,12 +2752,12 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       config <- apply_visual_recommendation(config, recommendation)
     }
     if (nzchar(config$color_field %||% "") && !config$color_field %in% columns) config$color_field <- recommendation$color_field %||% ""
-    result <- bp_apply_visual_config(state$project, config, registry)
-    if (state$project$name %in% c("Untitled scatter plot", "Untitled volcano plot", "Untitled boxplot")) {
+    result <- bp_apply_visual_config(project, config, registry)
+    if (project$name %in% c("Untitled scatter plot", "Untitled volcano plot", "Untitled boxplot")) {
       result$project$name <- switch(chart_type, volcano = "Untitled volcano plot", boxplot = "Untitled boxplot", "Untitled scatter plot")
       shiny::updateTextInput(session, "project_name", value = result$project$name)
     }
-    commit(result$project, result$root_instance_id, origin = "visual_source")
+    commit(result$project, result$root_instance_id, record_history = record_history, origin = origin)
     sync_visual_inputs(result$project, result$config)
     validation <- bp_validate_visual_config(result$config, columns)
     if (!isTRUE(validation$valid)) {
@@ -2368,12 +2765,13 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
         switch(
           chart_type,
           volcano = "已切换到火山图；请选择倍数变化和显著性字段。",
-          boxplot = "已切换到箱线图；请选择分组字段和数值字段。",
-          "已切换到散点图；请选择 X 和 Y 字段。"
+          boxplot = if (identical(workflow, "rna_seq")) "已切换到表达箱线图；请选择表达值和实验分组字段。" else "已切换到箱线图；请选择分组字段和数值字段。",
+          if (identical(workflow, "rna_seq")) "已切换到基因表达散点图；请选择两个表达字段。" else "已切换到散点图；请选择 X 和 Y 字段。"
         ),
         type = "warning", duration = 8
       )
     } else if (isTRUE(input$visual_auto_preview)) start_preview()
+    TRUE
   }
 
   shiny::observeEvent(input$visual_chart_scatter, switch_visual_chart("scatter"), ignoreInit = TRUE)
@@ -2466,6 +2864,49 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     if (isTRUE(input$visual_auto_preview)) start_preview()
   }, ignoreInit = TRUE, priority = 200)
 
+  shiny::observeEvent(input$visual_pca_confirm_recipe, {
+    if (!identical(bp_visual_chart_type(state$project), "pca")) return()
+    config <- bp_normalize_pca_config(visual_config_from_inputs(), state$project)
+    source <- bp_pca_source(state$project, config$expression_source_id)
+    data <- if (is.null(source)) NULL else pca_source_data(source$id, state$project)
+    if (is.null(source) || is.null(data)) {
+      shiny::showNotification("Raw count 数据源不可用；请重新导入或链接。", type = "error")
+      return()
+    }
+    if (!isTRUE(source$semantic_confirmed) || !identical(source$semantic_type, "raw_counts")) {
+      shiny::showNotification("请先将表达数据语义确认为 Raw count。", type = "warning")
+      return()
+    }
+    if (identical(config$raw_count_normalization, "tmm_logcpm") && !requireNamespace("edgeR", quietly = TRUE)) {
+      shiny::showNotification("当前 R 环境未安装 edgeR；请选择 log2(count + 1) 快速探索配方。", type = "error", duration = NULL)
+      return()
+    }
+    config$input_semantic_type <- "raw_counts"
+    config$transform <- "none"
+    config$raw_count_recipe_confirmed_signature <- bp_raw_count_recipe_signature(config)
+    prepared <- prepare_pca_config(config, state$project)
+    if (!isTRUE(prepared$result$ok)) {
+      shiny::showNotification(prepared$result$error %||% "Raw count PCA 配方执行失败。", type = "error", duration = NULL)
+      return()
+    }
+    result <- bp_apply_visual_pca_config(
+      state$project, prepared$config, registry, analysis_result = prepared$result
+    )
+    commit(result$project, result$root_instance_id, origin = "analysis_recipe")
+    cache_pca_result(prepared$result, result$project)
+    sync_visual_inputs(result$project, result$config)
+    preparation <- prepared$result$preparation %||% list()
+    shiny::showNotification(
+      paste0(
+        "Raw count PCA 已生成：保留 ", preparation$retained_feature_count %||% prepared$result$selected_feature_count,
+        " / ", preparation$original_feature_count %||% prepared$result$selected_feature_count,
+        " 个特征；方法为 ", preparation$normalization_label %||% config$raw_count_normalization, "。"
+      ),
+      type = "message", duration = 9
+    )
+    start_preview()
+  }, ignoreInit = TRUE, priority = 300)
+
   visual_config_reactive <- shiny::debounce(shiny::reactive(visual_config_from_inputs()), 480)
   shiny::observeEvent(visual_config_reactive(), {
     if (!identical(state$interface_mode, "visual")) return()
@@ -2517,7 +2958,14 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     } else {
       bp_validate_visual_config(incoming, visual_current_columns())
     }
-    result <- bp_apply_visual_config(state$project, incoming, registry)
+    result <- if (is_pca) {
+      bp_apply_visual_pca_config(
+        state$project, incoming, registry,
+        analysis_result = if (isTRUE(prepared$result$ok)) prepared$result else NULL
+      )
+    } else {
+      bp_apply_visual_config(state$project, incoming, registry)
+    }
     commit(result$project, result$root_instance_id, origin = "visual_config")
     if (is_pca && isTRUE(prepared$result$ok)) cache_pca_result(prepared$result, result$project)
     if (is_pca && length(prepared$cleared)) {
@@ -2538,7 +2986,14 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     normalized <- visual_normalize_config(config, state$project)
     current <- visual_normalize_config(visual_active_config(state$project), state$project)
     if (!identical(normalized, current)) {
-      result <- bp_apply_visual_config(state$project, normalized, registry)
+      result <- if (!is.null(prepared)) {
+        bp_apply_visual_pca_config(
+          state$project, normalized, registry,
+          analysis_result = if (isTRUE(prepared$result$ok)) prepared$result else NULL
+        )
+      } else {
+        bp_apply_visual_config(state$project, normalized, registry)
+      }
       commit(result$project, result$root_instance_id, origin = "visual_config")
     }
     if (!is.null(prepared) && isTRUE(prepared$result$ok)) cache_pca_result(prepared$result, state$project)
@@ -2949,8 +3404,16 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   )
   output$download_pca_scores <- make_pca_csv_download("scores")
   output$download_pca_loadings <- make_pca_csv_download("loadings")
+  output$download_pca_normalized <- make_pca_csv_download("normalized_expression")
+  output$visual_pca_normalized_export <- shiny::renderUI({
+    result <- pca_result()
+    if (is.null(result) || !isTRUE(result$ok) || !is.data.frame(result$normalized_expression)) return(NULL)
+    shiny::downloadButton("download_pca_normalized", "导出标准化表达 CSV", class = "bp-command-button")
+  })
   shiny::outputOptions(output, "download_pca_scores", suspendWhenHidden = FALSE)
   shiny::outputOptions(output, "download_pca_loadings", suspendWhenHidden = FALSE)
+  shiny::outputOptions(output, "download_pca_normalized", suspendWhenHidden = FALSE)
+  shiny::outputOptions(output, "visual_pca_normalized_export", suspendWhenHidden = FALSE)
 
   shiny::observeEvent(input$run_preview, start_preview(), ignoreInit = TRUE)
 

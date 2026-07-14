@@ -9,12 +9,21 @@ test_that("visual chart cards switch between volcano and scatter module stacks",
     server,
     {
       state <- session$userData$bp_state
-      session$setInputs(visual_auto_preview = FALSE, visual_chart_volcano = 0, visual_chart_scatter = 0)
+      session$setInputs(
+        visual_auto_preview = FALSE, visual_chart_volcano = 0, visual_chart_scatter = 0,
+        visual_workflow_mode = "generic"
+      )
       session$flushReact()
+      session$setInputs(visual_chart_volcano = 1)
+      session$flushReact()
+      expect_identical(state$project$visual_config$active_chart_type, "scatter")
+      session$setInputs(visual_workflow_mode = "rna_seq")
+      session$flushReact()
+      expect_identical(state$project$analysis_workflow_mode, "rna_seq")
       expect_length(state$project$modules, 1L)
       expect_identical(state$project$modules[[1]]$module_id, "r.ggplot2.ggplot")
       expect_identical(state$selected, state$project$modules[[1]]$instance_id)
-      session$setInputs(visual_chart_volcano = 1)
+      session$setInputs(visual_chart_volcano = 2)
       session$flushReact()
 
       volcano_code <- bp_generate_code(state$project, registry)
@@ -116,7 +125,7 @@ test_that("visual chart cards switch between volcano and scatter module stacks",
       expect_false(state$project$visual_config$boxplot$box_show_outliers)
       expect_false(state$project$visual_config$boxplot$box_outlier_restore)
 
-      session$setInputs(visual_chart_volcano = 2)
+      session$setInputs(visual_chart_volcano = 3)
       session$flushReact()
       volcano_restored_code <- bp_generate_code(state$project, registry)
       expect_identical(state$project$visual_config$active_chart_type, "volcano")
@@ -126,13 +135,25 @@ test_that("visual chart cards switch between volcano and scatter module stacks",
       expect_identical(state$project$visual_config$volcano$legend_title, "Regulation")
       expect_match(volcano_restored_code, 'labs(title = "Volcano plot", x = "log2 Fold Change", y = "-log10 adjusted p-value", color = "Regulation")', fixed = TRUE)
 
-      session$setInputs(visual_chart_scatter = 1)
+      history_before_workflow_switch <- length(state$history)
+      session$setInputs(visual_workflow_mode = "generic")
       session$flushReact()
       scatter_roles <- vapply(state$project$modules, function(instance) instance$visual_role %||% "", character(1))
+      expect_identical(state$project$analysis_workflow_mode, "generic")
       expect_identical(state$project$visual_config$active_chart_type, "scatter")
+      expect_length(state$history, history_before_workflow_switch + 1L)
       expect_false(any(grepl("^volcano_", scatter_roles)))
       expect_false(any(grepl("^visual_boxplot", scatter_roles)))
       expect_false(grepl("ifelse\\(", bp_generate_code(state$project, registry)))
+
+      session$setInputs(visual_undo = 1)
+      session$flushReact()
+      expect_identical(state$project$analysis_workflow_mode, "rna_seq")
+      expect_identical(state$project$visual_config$active_chart_type, "volcano")
+      session$setInputs(visual_redo = 1)
+      session$flushReact()
+      expect_identical(state$project$analysis_workflow_mode, "generic")
+      expect_identical(state$project$visual_config$active_chart_type, "scatter")
 
       session$setInputs(interface_mode = list(value = "advanced"))
       session$flushReact()

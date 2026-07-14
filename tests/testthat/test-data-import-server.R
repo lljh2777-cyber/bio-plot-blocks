@@ -117,3 +117,52 @@ test_that("Shiny import flow registers mapped CSV data", {
     }
   )
 })
+
+test_that("Shiny import flow can register confirmed raw counts without plot mapping", {
+  skip_if_not_installed("shiny")
+  source(file.path(root, "app", "modules", "workspace-server.R"), local = environment())
+  csv <- tempfile(fileext = ".csv")
+  on.exit(if (file.exists(csv)) unlink(csv), add = TRUE)
+  writeLines(c(
+    "Gene,S1,S2,S3,S4",
+    "g1,10,12,18,20",
+    "g2,0,0,1,0",
+    "g3,80,95,120,130",
+    "g4,22,25,19,31"
+  ), csv)
+
+  server <- function(input, output, session) {
+    session$userData$bp_state <- bp_workspace_server(input, output, session, registry, bp_load_template(), root)
+  }
+  shiny::testServer(
+    server,
+    {
+      state <- session$userData$bp_state
+      session$setInputs(import_data = 1)
+      session$setInputs(
+        data_delimiter = "auto", data_encoding = "UTF-8", data_header = TRUE,
+        data_na_values = ",NA,N/A,null,NULL", data_quote = '"', data_decimal = ".", data_skip = 0,
+        data_file = list(name = "counts.csv", size = file.info(csv)$size, type = "text/csv", datapath = csv)
+      )
+      session$flushReact()
+      review <- htmltools::renderTags(output$data_import_results)$html
+      expect_match(review, "可能是 RNA-seq Raw count", fixed = TRUE)
+      expect_match(review, "只注册数据源", fixed = TRUE)
+
+      session$setInputs(
+        data_source_name = "counts_raw",
+        data_type_1 = "character", data_type_2 = "integer", data_type_3 = "integer",
+        data_type_4 = "integer", data_type_5 = "integer",
+        data_semantic_type = "raw_counts", data_register_only = TRUE,
+        register_data_source = 1
+      )
+      session$flushReact()
+      source <- Filter(function(item) identical(item$name, "counts_raw"), state$project$data_sources)[[1]]
+      expect_true(source$semantic_confirmed)
+      expect_identical(source$semantic_type, "raw_counts")
+      expect_identical(state$project$analysis_workflow_mode, "rna_seq")
+      expect_identical(state$project$active_data_source_id, "dataset_example")
+      expect_true(is.data.frame(state$data_objects[[source$id]]))
+    }
+  )
+})

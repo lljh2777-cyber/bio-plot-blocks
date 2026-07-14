@@ -26,6 +26,8 @@
   let previewViewHandlerStarted = false;
   let parameterValueHandlerStarted = false;
   let visualChartHandlerStarted = false;
+  let visualWorkflowHandlerStarted = false;
+  let visualPageScrollFrame = null;
   const projectStorageKey = "bioplotblocks.project.v0.2";
   const interfaceModeStorageKey = "bioplotblocks.interface-mode.v1";
   const pendingInputTimers = new Map();
@@ -71,7 +73,9 @@
       }
     }
     if (notify !== false) sendInput("interface_mode", { value: next });
+    if (next === "visual") restoreVisualPageOrigin();
     window.requestAnimationFrame(function () {
+      if (next === "visual") restoreVisualPageOrigin();
       constrainResizeLayout();
       window.dispatchEvent(new Event("resize"));
       if (window.jQuery) {
@@ -89,8 +93,88 @@
     });
   }
 
+  function isContainedVisualLayout() {
+    return window.innerWidth > 760 && document.documentElement.classList.contains("bp-interface-visual");
+  }
+
+  function restoreVisualPageOrigin() {
+    if (!isContainedVisualLayout() || (window.scrollX === 0 && window.scrollY === 0)) return;
+    window.scrollTo(0, 0);
+  }
+
+  function scheduleVisualPageOriginRestore() {
+    if (!isContainedVisualLayout() || visualPageScrollFrame) return;
+    visualPageScrollFrame = window.requestAnimationFrame(function () {
+      visualPageScrollFrame = null;
+      restoreVisualPageOrigin();
+    });
+  }
+
+  function scrollVisualSection(section) {
+    if (!section) return;
+    const scroller = section.closest(".bp-visual-builder-scroll");
+    if (!isContainedVisualLayout() || !scroller) {
+      section.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    const scrollerRect = scroller.getBoundingClientRect();
+    const sectionRect = section.getBoundingClientRect();
+    const targetTop = Math.max(0, scroller.scrollTop + sectionRect.top - scrollerRect.top - 8);
+    scroller.scrollTo({ top: targetTop, behavior: "smooth" });
+    restoreVisualPageOrigin();
+    scheduleVisualPageOriginRestore();
+  }
+
+  function currentVisualWorkflowMode() {
+    if (document.body && document.body.dataset.visualWorkflowMode === "rna_seq") return "rna_seq";
+    const selected = document.querySelector('input[name="visual_workflow_mode"]:checked');
+    return selected && selected.value === "rna_seq" ? "rna_seq" : "generic";
+  }
+
+  function setVisualWorkflowMode(mode) {
+    if (!document.body) return;
+    const next = mode === "rna_seq" ? "rna_seq" : "generic";
+    const isRna = next === "rna_seq";
+    const prefix = isRna ? "rna" : "generic";
+    document.body.dataset.visualWorkflowMode = next;
+
+    const chartSection = document.getElementById("visual-section-chart");
+    const heading = chartSection && chartSection.querySelector(".bp-visual-section-title h2");
+    const description = chartSection && chartSection.querySelector(".bp-visual-section-title p");
+    if (heading) heading.textContent = isRna ? "选择分析图" : "选择图形";
+    if (description) description.textContent = isRna
+      ? "按 RNA-seq 分析目的选择图表；软件会提供对应的数据语义和字段建议。"
+      : "按几何表现选择图形；通用模式不预设特定分析目的。";
+
+    const stepLabel = document.querySelector('.bp-visual-step[data-visual-section="visual-section-chart"] > span:last-child');
+    if (stepLabel) stepLabel.textContent = isRna ? "分析图" : "图形";
+
+    document.querySelectorAll(".bp-visual-chart-card[data-chart-type]").forEach(function (button) {
+      const visible = button.dataset[prefix + "Visible"] !== "false";
+      const title = button.dataset[prefix + "Title"] || "";
+      const subtitle = button.dataset[prefix + "Subtitle"] || "";
+      const requirement = button.dataset[prefix + "Requirement"] || "";
+      button.hidden = !visible;
+      const titleNode = button.querySelector(".bp-visual-chart-name");
+      const subtitleNode = button.querySelector(".bp-visual-chart-description");
+      const requirementNode = button.querySelector(".bp-visual-chart-requirement-copy");
+      if (titleNode) titleNode.textContent = title;
+      if (subtitleNode) subtitleNode.textContent = subtitle;
+      if (requirementNode) requirementNode.textContent = requirement;
+      button.setAttribute("aria-label", title + "，" + subtitle + "，数据要求：" + requirement);
+    });
+
+    const sourceLabel = document.querySelector('label[for="visual_pca_expression_source"]');
+    if (sourceLabel) sourceLabel.textContent = isRna ? "表达矩阵 *" : "数据表 / 数值矩阵 *";
+
+    const active = document.querySelector(".bp-visual-chart-card.is-active[data-chart-type]");
+    const activeType = active && !active.hidden ? active.dataset.chartType : "scatter";
+    setVisualChartType(activeType);
+  }
+
   function setVisualChartType(chartType) {
     const next = ["scatter", "volcano", "boxplot", "pca"].includes(chartType) ? chartType : "scatter";
+    const workflow = currentVisualWorkflowMode();
     document.body.dataset.visualChartType = next;
     document.querySelectorAll(".bp-visual-chart-card[data-chart-type]").forEach(function (button) {
       const active = button.dataset.chartType === next;
@@ -144,10 +228,16 @@
     if (eyebrow) eyebrow.textContent = next === "volcano"
       ? "VOLCANO BUILDER · 火山图向导"
       : next === "boxplot"
-        ? "BOXPLOT BUILDER · 箱线图向导"
+        ? workflow === "rna_seq"
+          ? "EXPRESSION BOXPLOT · 表达箱线图向导"
+          : "BOXPLOT BUILDER · 箱线图向导"
         : next === "pca"
-          ? "PCA BUILDER · 主成分分析向导"
-          : "SCATTER BUILDER · 散点图向导";
+          ? workflow === "rna_seq"
+            ? "PCA BUILDER · 主成分分析向导"
+            : "DIMENSION REDUCTION · 降维图向导"
+          : workflow === "rna_seq"
+            ? "GENE EXPRESSION SCATTER · 基因表达散点图向导"
+            : "SCATTER BUILDER · 散点图向导";
   }
 
   function updateVisualColorSwatch(input) {
@@ -992,6 +1082,14 @@
     });
   }
 
+  function initializeVisualWorkflowHandler() {
+    if (visualWorkflowHandlerStarted || !window.Shiny || typeof window.Shiny.addCustomMessageHandler !== "function") return;
+    visualWorkflowHandlerStarted = true;
+    window.Shiny.addCustomMessageHandler("bp_visual_workflow_mode", function (message) {
+      setVisualWorkflowMode(message && message.value);
+    });
+  }
+
   document.addEventListener("click", function (event) {
     const modeButton = closest(event.target, ".bp-mode-button[data-interface-mode]");
     if (modeButton) {
@@ -1008,7 +1106,7 @@
     if (visualStep) {
       const sectionId = visualStep.dataset.visualSection;
       const section = document.getElementById(sectionId);
-      if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (section) scrollVisualSection(section);
       setVisualStep(sectionId);
       return;
     }
@@ -1178,6 +1276,12 @@
   }, true);
 
   document.addEventListener("change", function (event) {
+    const workflowMode = closest(event.target, 'input[name="visual_workflow_mode"]');
+    if (workflowMode) {
+      setVisualWorkflowMode(workflowMode.value);
+      return;
+    }
+
     const state = closest(event.target, ".bp-param-state");
     if (state) {
       sendInput("param_change", {
@@ -1530,9 +1634,12 @@
     setInterfaceMode(storedInterfaceMode(), false, false);
     refreshResizeHandles();
     setPreviewView("plot", false);
+    const workflowMode = document.querySelector('input[name="visual_workflow_mode"]:checked');
+    setVisualWorkflowMode(workflowMode && workflowMode.value);
     initializePreviewViewHandler();
     initializeParameterValueHandler();
     initializeVisualChartHandler();
+    initializeVisualWorkflowHandler();
     setHelpLanguage("zh");
     initializeHelpNavigation();
     initializeTextInputContinuity();
@@ -1551,12 +1658,17 @@
     window.requestAnimationFrame(initializeInterface);
   }
   window.addEventListener("resize", constrainResizeLayout);
+  window.addEventListener("resize", scheduleVisualPageOriginRestore);
+  window.addEventListener("scroll", scheduleVisualPageOriginRestore, { passive: true });
   document.addEventListener("shiny:connected", function () {
     setInterfaceMode(storedInterfaceMode(), false, true);
     refreshResizeHandles();
     initializePreviewViewHandler();
     initializeParameterValueHandler();
     initializeVisualChartHandler();
+    initializeVisualWorkflowHandler();
+    const workflowMode = document.querySelector('input[name="visual_workflow_mode"]:checked');
+    setVisualWorkflowMode(workflowMode && workflowMode.value);
     initializeProjectPersistence();
   });
 })();

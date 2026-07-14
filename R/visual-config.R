@@ -1249,12 +1249,12 @@ bp_validate_visual_boxplot_config <- function(config, columns = character()) {
   list(valid = !length(errors), errors = unique(errors))
 }
 
-bp_apply_visual_pca_config <- function(project, config, registry = NULL) {
+bp_apply_visual_pca_config <- function(project, config, registry = NULL, analysis_result = NULL) {
   registry <- registry %||% bp_load_registry()
   project <- unserialize(serialize(project, NULL))
   config <- bp_normalize_pca_config(config, project)
   stored_scatter <- project$visual_config$scatter %||% bp_visual_scatter_defaults(project)
-  project <- bp_pca_upsert_derived_sources(project, config)
+  project <- bp_pca_upsert_derived_sources(project, config, analysis_result)
 
   scatter <- bp_visual_scatter_defaults(project)
   scatter$data_source_id <- "dataset_pca_scores"
@@ -1350,6 +1350,21 @@ bp_apply_visual_pca_config <- function(project, config, registry = NULL) {
   project$visual_config <- project$visual_config %||% list()
   project$visual_config$active_chart_type <- "pca"
   project$visual_config$pca <- config
+  project$analysis_recipes <- project$analysis_recipes %||% list()
+  project$analysis_recipes$pca <- list(
+    contract_version = "0.1.0",
+    type = if (identical(config$input_semantic_type, "raw_counts")) "raw_count_pca" else "matrix_pca",
+    input_source_ids = Filter(nzchar, c(config$expression_source_id, config$metadata_source_id)),
+    confirmed_signature = config$raw_count_recipe_confirmed_signature %||% "",
+    config = config,
+    package_versions = {
+      versions <- analysis_result$preparation$package_versions %||% list(R = as.character(getRversion()))
+      versions$stats <- as.character(utils::packageVersion("stats"))
+      if (requireNamespace("ggplot2", quietly = TRUE)) versions$ggplot2 <- as.character(utils::packageVersion("ggplot2"))
+      versions
+    },
+    updated_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")
+  )
   list(project = project, root_instance_id = root$instance_id, config = config)
 }
 

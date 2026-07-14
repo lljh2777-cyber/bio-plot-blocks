@@ -2730,6 +2730,11 @@ html.bp-restoring-project body::before {
   background: #fffaf0;
 }
 
+.bp-data-source-card.is-stale {
+  border-color: #f6b94c;
+  background: #fff8e6;
+}
+
 .bp-data-source-card-main > div {
   display: flex;
   align-items: center;
@@ -3538,6 +3543,23 @@ html.bp-interface-visual .bp-app-shell {
   grid-template-rows: 60px minmax(0, 1fr) 64px 36px;
 }
 
+@media (min-width: 761px) {
+  html.bp-interface-visual,
+  html.bp-interface-visual body {
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  html.bp-interface-visual .bp-app-shell {
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    max-height: 100dvh;
+  }
+}
+
 html.bp-interface-visual .bp-topbar {
   gap: 10px;
 }
@@ -3720,9 +3742,11 @@ html.bp-interface-visual .bp-project-name-wrap {
 }
 
 .bp-visual-builder-scroll {
+  flex: 1 1 auto;
   min-height: 0;
   padding: 0 18px 30px;
   overflow: auto;
+  overscroll-behavior: contain;
   scroll-behavior: smooth;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
@@ -3848,6 +3872,35 @@ html.bp-interface-visual .bp-project-name-wrap {
   gap: 8px;
 }
 
+body[data-visual-workflow-mode="generic"] .bp-visual-chart-card[data-chart-type="scatter"] {
+  order: 1;
+}
+
+body[data-visual-workflow-mode="generic"] .bp-visual-chart-card[data-chart-type="boxplot"] {
+  order: 2;
+}
+
+body[data-visual-workflow-mode="generic"] .bp-visual-chart-card[data-chart-type="pca"] {
+  grid-column: 1 / -1;
+  order: 3;
+}
+
+body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type="pca"] {
+  order: 1;
+}
+
+body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type="boxplot"] {
+  order: 2;
+}
+
+body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type="scatter"] {
+  order: 3;
+}
+
+body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type="volcano"] {
+  order: 4;
+}
+
 .bp-visual-chart-card {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr) auto;
@@ -3878,6 +3931,10 @@ html.bp-interface-visual .bp-project-name-wrap {
   cursor: not-allowed;
 }
 
+.bp-visual-chart-card[hidden] {
+  display: none !important;
+}
+
 .bp-volcano-only[hidden],
 .bp-scatter-only[hidden],
 .bp-boxplot-only[hidden],
@@ -3888,6 +3945,7 @@ html.bp-interface-visual .bp-project-name-wrap {
   display: none !important;
 }
 
+.bp-visual-source-card,
 .bp-pca-source-card,
 .bp-pca-fields-card,
 .bp-pca-ellipse-card {
@@ -3974,6 +4032,236 @@ html.bp-interface-visual .bp-project-name-wrap {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 10px;
+}
+
+.bp-workflow-mode-card,
+.bp-data-passport,
+.bp-chart-compatibility,
+.bp-pca-recipe-card,
+.bp-analysis-context,
+.bp-import-semantic-suggestion {
+  border: 1px solid #d8e2f0;
+  border-radius: 9px;
+  background: #f8fbff;
+}
+
+.bp-workflow-mode-card {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) auto;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 10px 12px 3px;
+  margin-bottom: 12px;
+}
+
+.bp-workflow-mode-card > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.bp-workflow-mode-card > div:first-child span {
+  color: var(--bp-text-muted);
+  font-size: 9px;
+}
+
+.bp-workflow-mode-card .form-group,
+.bp-workflow-mode-card .shiny-options-group {
+  margin: 0;
+}
+
+.bp-data-passport {
+  margin-top: 12px;
+  padding: 11px;
+}
+
+.bp-data-passport.is-confirmed,
+.bp-pca-recipe-card.is-confirmed {
+  border-color: #b9dfcc;
+  background: #f5fcf8;
+}
+
+.bp-data-passport.needs-confirmation,
+.bp-pca-recipe-card.needs-confirmation {
+  border-color: #ecd49a;
+  background: #fffaf0;
+}
+
+.bp-data-passport-heading,
+.bp-data-passport-heading > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.bp-data-passport-heading {
+  justify-content: space-between;
+  margin-bottom: 9px;
+}
+
+.bp-data-passport-heading > div span,
+.bp-data-passport-grid span,
+.bp-analysis-context span {
+  color: var(--bp-text-muted);
+  font-size: 8px;
+}
+
+.bp-data-passport-state,
+.bp-semantic-source-label {
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: #fff3cf;
+  color: #8a5a00;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.bp-data-passport.is-confirmed .bp-data-passport-state,
+.bp-semantic-source-label.is-confirmed {
+  background: #def5e8;
+  color: #147a49;
+}
+
+.bp-data-passport-grid,
+.bp-analysis-context {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.bp-data-passport-grid > div,
+.bp-analysis-context > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 7px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.bp-data-passport-grid strong,
+.bp-analysis-context strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+}
+
+.bp-data-passport-evidence {
+  margin-top: 8px;
+  color: var(--bp-text-secondary);
+  font-size: 9px;
+}
+
+.bp-data-passport-evidence ul,
+.bp-import-semantic-suggestion ul {
+  margin: 6px 0 0 16px;
+  padding: 0;
+}
+
+.bp-data-semantic-confirm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 9px;
+  margin-top: 9px;
+}
+
+.bp-data-semantic-confirm .form-group {
+  margin-bottom: 0;
+}
+
+.bp-data-lineage-summary,
+.bp-data-source-lineage {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--bp-text-secondary);
+}
+
+.bp-data-lineage-summary {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid #d8e2f0;
+  font-size: 9px;
+}
+
+.bp-chart-compatibility {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px 10px;
+  margin-top: 10px;
+  padding: 9px 10px;
+  font-size: 9px;
+}
+
+.bp-chart-compatibility.is-direct { border-color: #b9dfcc; background: #f5fcf8; }
+.bp-chart-compatibility.is-transform,
+.bp-chart-compatibility.is-supplement { border-color: #ecd49a; background: #fffaf0; }
+.bp-chart-compatibility.is-incompatible,
+.bp-chart-compatibility.is-relink,
+.bp-chart-compatibility.is-failed { border-color: #efc5c5; background: #fff7f7; }
+
+.bp-chart-compatibility em {
+  color: var(--bp-blue);
+  font-style: normal;
+  font-weight: 700;
+}
+
+.bp-pca-recipe-card {
+  display: block;
+  margin-top: 12px;
+  padding: 11px 12px;
+}
+
+.bp-pca-recipe-card summary {
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--bp-text);
+}
+
+.bp-pca-recipe-card ol {
+  margin: 9px 0 10px 19px;
+  padding: 0;
+  color: var(--bp-text-secondary);
+  font-size: 9px;
+}
+
+.bp-pca-recipe-card p {
+  margin: 5px 0 0;
+  color: var(--bp-text-muted);
+  font-size: 9px;
+}
+
+.bp-pca-recipe-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px 9px;
+}
+
+.bp-pca-recipe-grid .form-group { margin-bottom: 3px; }
+
+.bp-pca-recipe-runtime {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 7px 0 9px;
+  color: var(--bp-text-secondary);
+  font-size: 9px;
+}
+
+.bp-analysis-context {
+  margin: 9px 12px 0;
+  padding: 9px;
+}
+
+.bp-import-semantic-suggestion {
+  margin: 9px 0;
+  padding: 10px 12px;
+  color: var(--bp-text-secondary);
+  font-size: 10px;
 }
 
 .bp-analysis-code {
@@ -5001,6 +5289,20 @@ html.bp-interface-visual .bp-project-name-wrap {
 
   .bp-help-language {
     min-width: 57px;
+  }
+}
+
+@media (max-width: 820px) {
+  .bp-workflow-mode-card,
+  .bp-chart-compatibility,
+  .bp-data-semantic-confirm {
+    grid-template-columns: 1fr;
+  }
+
+  .bp-data-passport-grid,
+  .bp-analysis-context,
+  .bp-pca-recipe-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

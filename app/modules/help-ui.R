@@ -176,6 +176,10 @@ bp_help_visual_mode_intro <- function(language) {
         text = if (chinese) "PCA 得分与载荷作为只读派生数据提供预览和 CSV 导出；高级模式分别显示分析 R 与绘图 R，导出的脚本包含 stats::prcomp() 全流程。" else "PCA scores and loadings are exposed as read-only derived data for preview and CSV export. Advanced mode separates analysis R from plot R, while the exported script includes the complete stats::prcomp() workflow."
       ),
       list(
+        title = if (chinese) "Raw count 引导分析" else "Guided raw-count analysis",
+        text = if (chinese) "数据护照只提出语义建议；用户确认 Raw count 和 PCA 配方后，软件才执行低表达过滤、edgeR TMM + logCPM（或 log2 快速探索），并生成只读标准化表达、PCA 得分与载荷来源链。" else "The data passport only suggests semantics. After the user confirms raw counts and the PCA recipe, BioPlotBlocks filters low expression, runs edgeR TMM + logCPM (or the log2 exploratory fallback), and creates read-only normalized-expression, PCA-score, and loading lineage."
+      ),
+      list(
         title = if (chinese) "自动预览" else "Automatic preview",
         text = if (chinese) "有效设置会自动运行本地 ggplot2；失败时保留上一次成功图片，并显示可滚动的错误信息。" else "Valid edits run local ggplot2 automatically. On failure, the last successful image stays visible with scrollable error details."
       ),
@@ -206,7 +210,7 @@ bp_help_document_zh <- function() {
       )),
       bp_help_note(
         "产品边界",
-        "BioPlotBlocks 是 R/ggplot2 代码编排器；除明确提供的 PCA 工作流外，不负责差异分析、数据清洗或其他生物信息学计算，也不会静默修改你的原始数据。"
+        "BioPlotBlocks 是 R/ggplot2 代码编排器，并提供明确确认的 Raw count → PCA 最小分析配方；它不会静默修改原始数据。复杂差异设计、批次校正、通路分析等仍不在当前核心范围。"
       )
     ),
     bp_help_section(
@@ -218,7 +222,11 @@ bp_help_document_zh <- function() {
         list(title = "运行真实预览", text = "单击顶部 Run preview，等待 Preview 区域显示图形，并检查底部错误与警告。"),
         list(title = "保存或导出", text = "用 Save 保存可继续编辑的 JSON 项目；用 Export 或 Download .R 导出可运行的 R 脚本。")
       )),
-      bp_help_note("提示", "Assign plot 打开时，生成代码会赋值给指定对象（默认 p）；关闭后则只生成表达式。")
+      bp_help_note("提示", "Assign plot 打开时，生成代码会赋值给指定对象（默认 p）；关闭后则只生成表达式。"),
+      bp_help_note(
+        "Raw count → PCA 快速流程",
+        "选择 RNA-seq 引导，先导入并仅注册 count 矩阵与可选样本信息表；确认数据语义和矩阵方向，再选择 PCA、检查 CPM 过滤及 TMM-logCPM 配方并点击“使用当前设置并生成”。标准化表达、PCA 得分和载荷会作为只读派生数据保留。"
+      )
     ),
     bp_help_section(
       "zh", "library", "03", "模块按钮与模板",
@@ -359,7 +367,7 @@ bp_help_document_en <- function() {
         list(title = "Generated R", text = "See deterministic R code generated from module state and linked to selection."),
         list(title = "Status bar", text = "Review errors, warnings, semantic fidelity, schema, module count, and runtime.")
       )),
-      bp_help_note("Product boundary", "BioPlotBlocks composes R/ggplot2 code. Apart from the explicit PCA workflow, it does not perform differential analysis, data cleaning, or other bioinformatics computations, and it never silently changes source data.")
+      bp_help_note("Product boundary", "BioPlotBlocks composes R/ggplot2 code and provides an explicitly confirmed raw-count-to-PCA minimal recipe. It never silently changes source data. Complex differential designs, batch correction, and pathway analysis remain outside the current core scope.")
     ),
     bp_help_section(
       "en", "quickstart", "02", "Quick start",
@@ -370,7 +378,11 @@ bp_help_document_en <- function() {
         list(title = "Run a real preview", text = "Click Run preview, wait for the plot, and check the error and warning indicators in the status bar."),
         list(title = "Save or export", text = "Use Save for an editable JSON project; use Export or Download .R for a runnable R script.")
       )),
-      bp_help_note("Tip", "When Assign plot is enabled, the generated code assigns the result to the chosen symbol (p by default). Disable it to emit only the expression.")
+      bp_help_note("Tip", "When Assign plot is enabled, the generated code assigns the result to the chosen symbol (p by default). Disable it to emit only the expression."),
+      bp_help_note(
+        "Raw count → PCA quick path",
+        "Choose RNA-seq Guided, import and register the count matrix plus optional sample metadata, confirm semantics and orientation, then select PCA, review the CPM filter and TMM-logCPM recipe, and click Use current settings and generate. Normalized expression, scores, and loadings remain available as read-only derived data."
+      )
     ),
     bp_help_section(
       "en", "library", "03", "Module buttons and templates",
