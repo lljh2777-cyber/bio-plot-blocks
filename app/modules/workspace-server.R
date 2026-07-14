@@ -722,6 +722,10 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     bp_visual_boxplot_defaults(initial),
     initial_boxplot_recommendation[c("x_field", "y_field", "color_field", "x_scale", "y_scale")]
   ), initial)
+  initial$visual_config$violin <- bp_normalize_visual_violin_config(utils::modifyList(
+    bp_visual_violin_defaults(initial),
+    initial_boxplot_recommendation[c("x_field", "y_field", "color_field", "x_scale", "y_scale")]
+  ), initial)
   initial$visual_config$pca <- bp_normalize_pca_config(utils::modifyList(
     bp_pca_defaults(initial),
     list(
@@ -1023,6 +1027,8 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       bp_normalize_visual_volcano_config(config, project)
     } else if (identical(config$chart_type %||% "scatter", "boxplot")) {
       bp_normalize_visual_boxplot_config(config, project)
+    } else if (identical(config$chart_type %||% "scatter", "violin")) {
+      bp_normalize_visual_violin_config(config, project)
     } else if (identical(config$chart_type %||% "scatter", "pca")) {
       bp_normalize_pca_config(config, project)
     } else {
@@ -1123,6 +1129,10 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       box_jitter_size = input$visual_box_jitter_size %||% current$box_jitter_size %||% 1.4,
       box_jitter_alpha = input$visual_box_jitter_alpha %||% current$box_jitter_alpha %||% 0.55,
       box_jitter_width = input$visual_box_jitter_width %||% current$box_jitter_width %||% 0.16,
+      violin_border_color = input$visual_violin_border_color %||% current$violin_border_color %||% "#334155",
+      violin_trim = if (is.null(input$visual_violin_trim)) isTRUE(current$violin_trim %||% TRUE) else isTRUE(input$visual_violin_trim),
+      violin_scale = input$visual_violin_scale %||% current$violin_scale %||% "area",
+      violin_show_median = if (is.null(input$visual_violin_show_median)) isTRUE(current$violin_show_median %||% TRUE) else isTRUE(input$visual_violin_show_median),
       advanced_preserved = isTRUE(current$advanced_preserved)
     )
   }
@@ -1145,7 +1155,8 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     color <- trimws(config$point_color %||% "")
     if (!grepl("^#[0-9A-Fa-f]{6}$", color)) {
       validation$valid <- FALSE
-      validation$errors <- unique(c(validation$errors, "点颜色需使用 6 位十六进制颜色，例如 #2C7FB8。"))
+      color_label <- if ((config$chart_type %||% "scatter") %in% c("boxplot", "violin")) "填充色" else "点颜色"
+      validation$errors <- unique(c(validation$errors, paste0(color_label, "需使用 6 位十六进制颜色，例如 #2C7FB8。")))
     }
     validation
   }
@@ -1300,6 +1311,10 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     shiny::updateNumericInput(session, "visual_box_jitter_size", value = config$box_jitter_size %||% 1.4)
     shiny::updateNumericInput(session, "visual_box_jitter_alpha", value = config$box_jitter_alpha %||% 0.55)
     shiny::updateNumericInput(session, "visual_box_jitter_width", value = config$box_jitter_width %||% 0.16)
+    shiny::updateTextInput(session, "visual_violin_border_color", value = config$violin_border_color %||% "#334155")
+    shiny::updateCheckboxInput(session, "visual_violin_trim", value = isTRUE(config$violin_trim %||% TRUE))
+    shiny::updateSelectInput(session, "visual_violin_scale", selected = config$violin_scale %||% "area")
+    shiny::updateCheckboxInput(session, "visual_violin_show_median", value = isTRUE(config$violin_show_median %||% TRUE))
     later::later(function() state$visual_syncing <- FALSE, 0.35)
     invisible(config)
   }
@@ -1675,7 +1690,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     chart_type <- bp_visual_chart_type(state$project)
     recommendation <- if (identical(chart_type, "volcano")) {
       bp_visual_recommend_volcano_fields(source, data)
-    } else if (identical(chart_type, "boxplot")) {
+    } else if (chart_type %in% c("boxplot", "violin")) {
       bp_visual_recommend_boxplot_fields(source, data)
     } else {
       bp_visual_recommend_scatter_fields(source, data)
@@ -1687,7 +1702,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
         if (nzchar(recommendation$color_field)) paste0("，状态 = ", recommendation$color_field) else "，自动按阈值分组",
         "。"
       )
-    } else if (identical(chart_type, "boxplot")) {
+    } else if (chart_type %in% c("boxplot", "violin")) {
       paste0(
         "分组 = ", recommendation$x_field, "，数值 = ", recommendation$y_field,
         if (nzchar(recommendation$color_field)) paste0("，填充 = ", recommendation$color_field) else "",
@@ -2570,14 +2585,19 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   shiny::outputOptions(output, "generated_code_transport", suspendWhenHidden = FALSE)
   shiny::outputOptions(output, "project_state_transport", suspendWhenHidden = FALSE)
 
-  repair_visual_boxplot_grouping <- function(record_history = TRUE) {
-    if (!identical(bp_visual_chart_type(state$project), "boxplot")) return(FALSE)
-    repaired <- bp_visual_remove_boxplot_group_mappings(state$project)
+  repair_visual_distribution_grouping <- function(record_history = TRUE) {
+    chart_type <- bp_visual_chart_type(state$project)
+    if (!chart_type %in% c("boxplot", "violin")) return(FALSE)
+    repaired <- bp_visual_remove_distribution_group_mappings(state$project, chart_type)
     if (!isTRUE(repaired$changed)) return(FALSE)
-    config <- bp_visual_boxplot_config_from_project(repaired$project)
+    config <- if (identical(chart_type, "boxplot")) {
+      bp_visual_boxplot_config_from_project(repaired$project)
+    } else {
+      bp_visual_violin_config_from_project(repaired$project)
+    }
     repaired$project$visual_config <- repaired$project$visual_config %||% list()
-    repaired$project$visual_config$active_chart_type <- "boxplot"
-    repaired$project$visual_config$boxplot <- config
+    repaired$project$visual_config$active_chart_type <- chart_type
+    repaired$project$visual_config[[chart_type]] <- config
     root_index <- bp_visual_first_instance(repaired$project, "r.ggplot2.ggplot")
     selected <- if (!is.na(root_index)) repaired$project$modules[[root_index]]$instance_id else state$selected
     commit(
@@ -2594,7 +2614,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     origin <- shiny::isolate(state$last_commit_origin)
     if (identical(origin, "visual_config")) return()
     if (identical(shiny::isolate(state$interface_mode), "visual") &&
-        isTRUE(repair_visual_boxplot_grouping(record_history = FALSE))) return()
+        isTRUE(repair_visual_distribution_grouping(record_history = FALSE))) return()
     project <- shiny::isolate(state$project)
     config <- bp_visual_config_from_project(project)
     repaired <- bp_visual_repair_cross_chart_labels(config, config$chart_type, project)
@@ -2611,7 +2631,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   shiny::observeEvent(input$interface_mode, {
     mode <- input$interface_mode$value %||% input$interface_mode %||% "visual"
     state$interface_mode <- mode
-    if (identical(mode, "visual")) repair_visual_boxplot_grouping(record_history = TRUE)
+    if (identical(mode, "visual")) repair_visual_distribution_grouping(record_history = TRUE)
   }, ignoreInit = FALSE)
 
   shiny::observeEvent(input$visual_pca_expression_source, {
@@ -2671,6 +2691,8 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       bp_visual_recommend_volcano_fields(source, data)
     } else if (identical(chart_type, "boxplot")) {
       bp_visual_recommend_boxplot_fields(source, data)
+    } else if (identical(chart_type, "violin")) {
+      bp_visual_recommend_violin_fields(source, data)
     } else {
       bp_visual_recommend_scatter_fields(source, data)
     }
@@ -2689,7 +2711,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     chart_type, project = shiny::isolate(state$project), record_history = TRUE,
     origin = "visual_source", allow_example_fallback = FALSE
   ) {
-    chart_type <- if (chart_type %in% c("scatter", "volcano", "boxplot", "pca")) chart_type else "scatter"
+    chart_type <- if (chart_type %in% c("scatter", "volcano", "boxplot", "violin", "pca")) chart_type else "scatter"
     workflow <- project$analysis_workflow_mode %||% "generic"
     if (identical(chart_type, "volcano") && !identical(workflow, "rna_seq")) {
       shiny::showNotification("火山图仅在 RNA-seq 引导中提供；请先切换工作流模式。", type = "warning")
@@ -2707,7 +2729,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
         config$expression_source_id <- if (!is.null(active) && !isTRUE(active$derived)) active$id else "dataset_example"
       }
       result <- bp_apply_visual_pca_config(project, config, registry)
-      if (project$name %in% c("Untitled scatter plot", "Untitled volcano plot", "Untitled boxplot")) {
+      if (project$name %in% c("Untitled scatter plot", "Untitled volcano plot", "Untitled boxplot", "Untitled violin plot")) {
         result$project$name <- "Untitled PCA plot"
         shiny::updateTextInput(session, "project_name", value = result$project$name)
       }
@@ -2730,6 +2752,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       chart_type,
       volcano = bp_visual_volcano_defaults(project),
       boxplot = bp_visual_boxplot_defaults(project),
+      violin = bp_visual_violin_defaults(project),
       bp_visual_scatter_defaults(project)
     )
     config <- bp_visual_repair_cross_chart_labels(config, chart_type, project)
@@ -2753,8 +2776,14 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     }
     if (nzchar(config$color_field %||% "") && !config$color_field %in% columns) config$color_field <- recommendation$color_field %||% ""
     result <- bp_apply_visual_config(project, config, registry)
-    if (project$name %in% c("Untitled scatter plot", "Untitled volcano plot", "Untitled boxplot")) {
-      result$project$name <- switch(chart_type, volcano = "Untitled volcano plot", boxplot = "Untitled boxplot", "Untitled scatter plot")
+    if (project$name %in% c("Untitled scatter plot", "Untitled volcano plot", "Untitled boxplot", "Untitled violin plot")) {
+      result$project$name <- switch(
+        chart_type,
+        volcano = "Untitled volcano plot",
+        boxplot = "Untitled boxplot",
+        violin = "Untitled violin plot",
+        "Untitled scatter plot"
+      )
       shiny::updateTextInput(session, "project_name", value = result$project$name)
     }
     commit(result$project, result$root_instance_id, record_history = record_history, origin = origin)
@@ -2766,6 +2795,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
           chart_type,
           volcano = "已切换到火山图；请选择倍数变化和显著性字段。",
           boxplot = if (identical(workflow, "rna_seq")) "已切换到表达箱线图；请选择表达值和实验分组字段。" else "已切换到箱线图；请选择分组字段和数值字段。",
+          violin = if (identical(workflow, "rna_seq")) "已切换到表达小提琴图；请选择表达值和实验分组字段。" else "已切换到小提琴图；请选择分组字段和数值字段。",
           if (identical(workflow, "rna_seq")) "已切换到基因表达散点图；请选择两个表达字段。" else "已切换到散点图；请选择 X 和 Y 字段。"
         ),
         type = "warning", duration = 8
@@ -2777,6 +2807,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   shiny::observeEvent(input$visual_chart_scatter, switch_visual_chart("scatter"), ignoreInit = TRUE)
   shiny::observeEvent(input$visual_chart_volcano, switch_visual_chart("volcano"), ignoreInit = TRUE)
   shiny::observeEvent(input$visual_chart_boxplot, switch_visual_chart("boxplot"), ignoreInit = TRUE)
+  shiny::observeEvent(input$visual_chart_violin, switch_visual_chart("violin"), ignoreInit = TRUE)
   shiny::observeEvent(input$visual_chart_pca, switch_visual_chart("pca"), ignoreInit = TRUE)
 
   shiny::observeEvent(input$visual_recommend_fields, {
@@ -2791,6 +2822,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
           config$chart_type,
           volcano = "未找到可识别的 logFC 与 PValue/FDR 数值列；仍可手动选择。",
           boxplot = "未找到可用的分组字段与数值字段；仍可手动选择。",
+          violin = "未找到可用的分组字段与数值字段；仍可手动选择。",
           "当前数据源中没有足够的数值列用于散点图。"
         ),
         type = "warning"
@@ -2814,6 +2846,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       chart_type,
       volcano = bp_visual_volcano_defaults(project),
       boxplot = bp_visual_boxplot_defaults(project),
+      violin = bp_visual_violin_defaults(project),
       pca = bp_pca_defaults(project),
       bp_visual_scatter_config_from_project(project)
     )
@@ -2828,7 +2861,14 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     } else {
       config <- apply_visual_recommendation(config, recommendation)
     }
-    config$title <- switch(chart_type, volcano = "Untitled volcano plot", boxplot = "Untitled boxplot", pca = "Untitled PCA plot", "Untitled scatter plot")
+    config$title <- switch(
+      chart_type,
+      volcano = "Untitled volcano plot",
+      boxplot = "Untitled boxplot",
+      violin = "Untitled violin plot",
+      pca = "Untitled PCA plot",
+      "Untitled scatter plot"
+    )
     project$name <- config$title
     result <- bp_apply_visual_config(project, config, registry)
     commit(result$project, result$root_instance_id, origin = "visual_source")
@@ -2933,6 +2973,11 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     if (identical(raw_config$chart_type, "boxplot") && isTRUE(raw_config$box_jitter) &&
         !grepl("^#[0-9A-Fa-f]{6}$", trimws(raw_config$box_jitter_color %||% ""))) {
       state$visual_input_error <- "invalid_box_jitter_color"
+      return()
+    }
+    if (identical(raw_config$chart_type, "violin") &&
+        !grepl("^#[0-9A-Fa-f]{6}$", trimws(raw_config$violin_border_color %||% ""))) {
+      state$visual_input_error <- "invalid_violin_border_color"
       return()
     }
     if (!is_pca) {

@@ -245,7 +245,7 @@ bp_chart_data_compatibility <- function(source, chart_type, data = NULL) {
     if (any(grepl("logfc|log2fold", columns)) && any(grepl("pvalue|p.value|fdr|padj", columns))) return(result("direct", "检测到倍数变化和显著性字段。"))
     return(result("incompatible", "缺少差异分析的 logFC 与 PValue/FDR 字段。", "选择差异结果或先运行差异分析"))
   }
-  if (identical(chart_type, "boxplot")) {
+  if (chart_type %in% c("boxplot", "violin")) {
     if (semantic %in% c("generic_table", "long_format_measurements")) return(result("direct", "可直接选择分组字段和数值字段。"))
     if (semantic %in% c("raw_counts", "normalized_expression")) return(result("transform", "宽表达矩阵需要选择目标基因并转换成长表。", "使用基因表达配方"))
   }

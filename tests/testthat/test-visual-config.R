@@ -28,6 +28,15 @@ test_that("boxplot recommendations recognize grouping and numeric value columns"
   expect_identical(recommendation$color_field, "group")
 })
 
+test_that("violin recommendations reuse grouped numeric semantics", {
+  source <- bp_example_data_source()
+  recommendation <- bp_visual_recommend_violin_fields(source, bp_default_environment()$df)
+  expect_true(recommendation$available)
+  expect_identical(recommendation$x_field, "group")
+  expect_identical(recommendation$y_field, "value")
+  expect_identical(recommendation$color_field, "group")
+})
+
 test_that("cross-chart default labels are repaired without overwriting custom labels", {
   volcano <- bp_visual_volcano_defaults()
   infected_box <- bp_visual_boxplot_defaults()
@@ -81,6 +90,51 @@ test_that("boxplot can hide outliers and use a fixed fill", {
   expect_match(code, 'geom_boxplot(color = "#334155", fill = "#90CAF9"', fixed = TRUE)
   expect_match(code, "outlier.shape = NA", fixed = TRUE)
   expect_false(grepl("scale_fill_manual", code, fixed = TRUE))
+  expect_true(bp_execute_project(result$project, registry)$ok)
+})
+
+test_that("violin config compiles grouped densities with a median line", {
+  project <- bp_basic_scatter_project(registry)
+  config <- bp_visual_violin_defaults(project)
+  config$x_field <- "group"
+  config$y_field <- "value"
+  config$color_field <- "group"
+  config$palette <- "viridis_like"
+  config$title <- "Expression density"
+
+  result <- bp_apply_visual_violin_config(project, config, registry)
+  code <- bp_generate_code(result$project, registry)
+  roles <- vapply(result$project$modules, function(instance) instance$visual_role %||% "", character(1))
+
+  expect_identical(result$project$visual_config$active_chart_type, "violin")
+  expect_match(code, "aes(x = group, y = value, fill = group)", fixed = TRUE)
+  expect_match(code, 'geom_violin(color = "#334155", width = 0.9, alpha = 0.82', fixed = TRUE)
+  expect_match(code, 'trim = TRUE, scale = "area", quantiles = 0.5', fixed = TRUE)
+  expect_match(code, "quantile.linetype = 1, quantile.linewidth = 0.5", fixed = TRUE)
+  expect_match(code, "scale_fill_manual", fixed = TRUE)
+  expect_false(grepl("geom_point|geom_boxplot", code))
+  expect_true("visual_violin_layer" %in% roles)
+  expect_true("visual_violin_fill_scale" %in% roles)
+  expect_true(bp_execute_project(result$project, registry)$ok)
+})
+
+test_that("violin supports fixed fill, untrimmed tails, and an optional median", {
+  project <- bp_basic_scatter_project(registry)
+  config <- bp_visual_violin_defaults(project)
+  config$x_field <- "group"
+  config$y_field <- "value"
+  config$color_field <- ""
+  config$point_color <- "#90CAF9"
+  config$violin_trim <- FALSE
+  config$violin_scale <- "width"
+  config$violin_show_median <- FALSE
+
+  result <- bp_apply_visual_violin_config(project, config, registry)
+  code <- bp_generate_code(result$project, registry)
+
+  expect_match(code, 'geom_violin(color = "#334155", fill = "#90CAF9"', fixed = TRUE)
+  expect_match(code, 'trim = FALSE, scale = "width"', fixed = TRUE)
+  expect_false(grepl("quantiles|quantile.linetype|scale_fill_manual", code))
   expect_true(bp_execute_project(result$project, registry)$ok)
 })
 
@@ -180,6 +234,26 @@ test_that("entering visual boxplot mode removes only conflicting group mappings"
   expect_match(code, "notch = TRUE", fixed = TRUE)
 })
 
+test_that("entering visual violin mode removes stale group mappings", {
+  project <- bp_basic_scatter_project(registry)
+  config <- bp_visual_violin_defaults(project)
+  config$x_field <- "group"
+  config$y_field <- "value"
+  config$color_field <- "group"
+  project <- bp_apply_visual_violin_config(project, config, registry)$project
+  root_index <- bp_visual_first_instance(project, "r.ggplot2.ggplot")
+  mapping <- project$modules[[root_index]]$arguments$mapping
+  mapping$value$mappings$group <- bp_symbol("status")
+  project$modules[[root_index]]$arguments$mapping <- mapping
+
+  repaired <- bp_visual_remove_violin_group_mappings(project)
+  code <- bp_generate_code(repaired$project, registry)
+
+  expect_true(repaired$changed)
+  expect_false(grepl("group = status", code, fixed = TRUE))
+  expect_match(code, "geom_violin", fixed = TRUE)
+})
+
 test_that("boxplot remembers a disabled outlier state while jitter is active", {
   project <- bp_basic_scatter_project(registry)
   config <- bp_visual_boxplot_defaults(project)
@@ -217,6 +291,28 @@ test_that("switching from boxplot to scatter removes managed boxplot layers", {
   expect_identical(result$project$visual_config$active_chart_type, "scatter")
   expect_false(any(grepl("^visual_boxplot", roles)))
   expect_false(grepl("geom_boxplot|geom_jitter|scale_fill_manual", code))
+  expect_true(bp_execute_project(result$project, registry)$ok)
+})
+
+test_that("switching from violin to scatter removes managed violin layers", {
+  project <- bp_basic_scatter_project(registry)
+  violin <- bp_visual_violin_defaults(project)
+  violin$x_field <- "group"
+  violin$y_field <- "value"
+  violin$color_field <- "group"
+  violin$palette <- "blue_red"
+  project <- bp_apply_visual_violin_config(project, violin, registry)$project
+
+  scatter <- bp_visual_scatter_defaults(project)
+  scatter$x_field <- "PC1"
+  scatter$y_field <- "PC2"
+  result <- bp_apply_visual_scatter_config(project, scatter, registry)
+  code <- bp_generate_code(result$project, registry)
+  roles <- vapply(result$project$modules, function(instance) instance$visual_role %||% "", character(1))
+
+  expect_identical(result$project$visual_config$active_chart_type, "scatter")
+  expect_false(any(grepl("^visual_violin", roles)))
+  expect_false(grepl("geom_violin|scale_fill_manual", code))
   expect_true(bp_execute_project(result$project, registry)$ok)
 })
 

@@ -77,6 +77,18 @@ test_that("project migration keeps an active volcano plot in the RNA-seq catalog
   expect_identical(migrated$visual_config$active_chart_type, "volcano")
 })
 
+test_that("project migration adds independent violin defaults", {
+  project <- bp_create_project("Legacy project")
+  project$visual_config$violin <- NULL
+
+  migrated <- bp_migrate_project(project)
+
+  expect_identical(migrated$visual_config$violin$chart_type, "violin")
+  expect_identical(migrated$visual_config$violin$title, "Violin plot")
+  expect_true(migrated$visual_config$violin$violin_trim)
+  expect_true(migrated$visual_config$violin$violin_show_median)
+})
+
 test_that("scope scan permits only visible ggplot2 add-on calls", {
   project <- bp_project_from_template("bio.volcano.basic", registry)
   scope <- bp_scope_scan(bp_generate_code(project, registry, include_setup = TRUE))

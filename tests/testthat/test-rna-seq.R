@@ -68,6 +68,7 @@ test_that("semantic confirmation is versioned and drives chart compatibility", {
   expect_identical(project$analysis_workflow_mode, "rna_seq")
   expect_identical(bp_chart_data_compatibility(confirmed, "pca", counts)$status, "transform")
   expect_identical(bp_chart_data_compatibility(confirmed, "volcano", counts)$status, "supplement")
+  expect_identical(bp_chart_data_compatibility(confirmed, "violin", counts)$status, "transform")
 })
 
 test_that("raw count preparation filters low expression and validates count semantics", {

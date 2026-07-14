@@ -14,6 +14,13 @@ test_that("ordinary module instances come from ModuleSpec", {
   expect_true(all(vapply(instance$arguments, function(argument) identical(argument$state, "unset"), logical(1))))
 })
 
+test_that("violin layers are available as ordinary ggplot2 modules", {
+  instance <- bp_instantiate_module("r.ggplot2.geom_violin", registry, "violin-1")
+  expect_identical(instance$module_id, "r.ggplot2.geom_violin")
+  expect_true(all(c("mapping", "data", "fill", "width", "trim", "scale", "quantiles") %in% names(instance$arguments)))
+  expect_true(all(vapply(instance$arguments, function(argument) identical(argument$state, "unset"), logical(1))))
+})
+
 test_that("ggplot data uses the registered-source hybrid control", {
   spec <- bp_get_spec(registry, "r.ggplot2.ggplot")
   parameter <- Filter(function(item) identical(item$name, "data"), spec$parameters)[[1]]

@@ -3880,9 +3880,12 @@ body[data-visual-workflow-mode="generic"] .bp-visual-chart-card[data-chart-type=
   order: 2;
 }
 
-body[data-visual-workflow-mode="generic"] .bp-visual-chart-card[data-chart-type="pca"] {
-  grid-column: 1 / -1;
+body[data-visual-workflow-mode="generic"] .bp-visual-chart-card[data-chart-type="violin"] {
   order: 3;
+}
+
+body[data-visual-workflow-mode="generic"] .bp-visual-chart-card[data-chart-type="pca"] {
+  order: 4;
 }
 
 body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type="pca"] {
@@ -3893,12 +3896,17 @@ body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type=
   order: 2;
 }
 
-body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type="scatter"] {
+body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type="violin"] {
   order: 3;
 }
 
-body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type="volcano"] {
+body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type="scatter"] {
   order: 4;
+}
+
+body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type="volcano"] {
+  grid-column: 1 / -1;
+  order: 5;
 }
 
 .bp-visual-chart-card {
@@ -3938,6 +3946,7 @@ body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type=
 .bp-volcano-only[hidden],
 .bp-scatter-only[hidden],
 .bp-boxplot-only[hidden],
+.bp-violin-only[hidden],
 .bp-pca-only[hidden],
 .bp-non-pca-only[hidden],
 .bp-point-only[hidden],
@@ -4286,7 +4295,12 @@ body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type=
   margin-top: 2px;
 }
 
-.bp-boxplot-only .checkbox {
+.bp-violin-only {
+  margin-top: 2px;
+}
+
+.bp-boxplot-only .checkbox,
+.bp-violin-only .checkbox {
   display: flex;
   align-items: center;
   min-height: 42px;

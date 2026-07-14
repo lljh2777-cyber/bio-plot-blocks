@@ -41,6 +41,7 @@ bp_create_project <- function(name = "Untitled plot") {
       scatter = bp_visual_scatter_defaults(),
       volcano = bp_visual_volcano_defaults(),
       boxplot = bp_visual_boxplot_defaults(),
+      violin = bp_visual_violin_defaults(),
       pca = bp_pca_defaults()
     ),
     template_provenance = NULL,
@@ -100,6 +101,7 @@ bp_migrate_project <- function(project) {
     project$visual_config$scatter <- project$visual_config$scatter %||% bp_visual_scatter_defaults(project)
     project$visual_config$volcano <- project$visual_config$volcano %||% bp_visual_volcano_defaults(project)
     project$visual_config$boxplot <- project$visual_config$boxplot %||% bp_visual_boxplot_defaults(project)
+    project$visual_config$violin <- project$visual_config$violin %||% bp_visual_violin_defaults(project)
     project$visual_config$pca <- project$visual_config$pca %||% bp_pca_defaults(project)
     if (identical(project$visual_config$active_chart_type, "volcano")) project$analysis_workflow_mode <- "rna_seq"
     project <- bp_visual_remove_automatic_volcano_lines(project)
@@ -124,6 +126,7 @@ bp_migrate_project <- function(project) {
     project$visual_config$scatter <- project$visual_config$scatter %||% bp_visual_scatter_defaults(project)
     project$visual_config$volcano <- project$visual_config$volcano %||% bp_visual_volcano_defaults(project)
     project$visual_config$boxplot <- project$visual_config$boxplot %||% bp_visual_boxplot_defaults(project)
+    project$visual_config$violin <- project$visual_config$violin %||% bp_visual_violin_defaults(project)
     project$visual_config$pca <- project$visual_config$pca %||% bp_pca_defaults(project)
     if (identical(project$visual_config$active_chart_type, "volcano")) project$analysis_workflow_mode <- "rna_seq"
     project <- bp_visual_remove_automatic_volcano_lines(project)

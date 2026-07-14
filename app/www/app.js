@@ -173,7 +173,7 @@
   }
 
   function setVisualChartType(chartType) {
-    const next = ["scatter", "volcano", "boxplot", "pca"].includes(chartType) ? chartType : "scatter";
+    const next = ["scatter", "volcano", "boxplot", "violin", "pca"].includes(chartType) ? chartType : "scatter";
     const workflow = currentVisualWorkflowMode();
     document.body.dataset.visualChartType = next;
     document.querySelectorAll(".bp-visual-chart-card[data-chart-type]").forEach(function (button) {
@@ -190,6 +190,9 @@
     document.querySelectorAll(".bp-boxplot-only").forEach(function (element) {
       element.hidden = next !== "boxplot";
     });
+    document.querySelectorAll(".bp-violin-only").forEach(function (element) {
+      element.hidden = next !== "violin";
+    });
     document.querySelectorAll(".bp-pca-only").forEach(function (element) {
       element.hidden = next !== "pca";
     });
@@ -201,27 +204,37 @@
       window.jQuery(next === "pca" ? ".bp-pca-only" : ".bp-non-pca-only").trigger("shown");
     }
     document.querySelectorAll(".bp-point-only").forEach(function (element) {
-      element.hidden = next === "boxplot";
+      element.hidden = ["boxplot", "violin"].includes(next);
     });
     document.querySelectorAll(".bp-non-boxplot-only").forEach(function (element) {
-      element.hidden = next === "boxplot";
+      element.hidden = ["boxplot", "violin"].includes(next);
     });
     const labels = next === "volcano"
       ? { x: "倍数变化字段 *", y: "显著性字段 *", color: "已有状态分组（可选）" }
       : next === "boxplot"
         ? { x: "分组字段 *", y: "数值字段 *", color: "箱体填充分组（可选）" }
+        : next === "violin"
+          ? { x: "分组字段 *", y: "数值字段 *", color: "小提琴填充分组（可选）" }
         : { x: "X 轴字段 *", y: "Y 轴字段 *", color: "颜色/状态分组" };
     Object.keys(labels).forEach(function (field) {
       const label = document.querySelector('.bp-visual-field-control[data-visual-field="' + field + '"] label');
       if (label) label.textContent = labels[field];
     });
     const primaryColorLabel = document.querySelector('[data-visual-style="primary-color"] label');
-    if (primaryColorLabel) primaryColorLabel.textContent = next === "boxplot" ? "箱体填充色" : "点颜色";
+    if (primaryColorLabel) primaryColorLabel.textContent = next === "boxplot"
+      ? "箱体填充色"
+      : next === "violin"
+        ? "小提琴填充色"
+        : "点颜色";
     const primarySizeLabel = document.querySelector(".bp-visual-size-control label");
-    if (primarySizeLabel) primarySizeLabel.textContent = next === "boxplot" ? "箱体宽度" : "固定点大小";
+    if (primarySizeLabel) primarySizeLabel.textContent = next === "boxplot"
+      ? "箱体宽度"
+      : next === "violin"
+        ? "小提琴宽度"
+        : "固定点大小";
     const primarySizeInput = document.getElementById("visual_point_size");
     if (primarySizeInput) {
-      primarySizeInput.max = next === "boxplot" ? "2" : "20";
+      primarySizeInput.max = ["boxplot", "violin"].includes(next) ? "2" : "20";
       primarySizeInput.step = "0.1";
     }
     const eyebrow = document.querySelector(".bp-visual-builder-heading .bp-visual-eyebrow");
@@ -231,6 +244,10 @@
         ? workflow === "rna_seq"
           ? "EXPRESSION BOXPLOT · 表达箱线图向导"
           : "BOXPLOT BUILDER · 箱线图向导"
+        : next === "violin"
+          ? workflow === "rna_seq"
+            ? "EXPRESSION VIOLIN · 表达小提琴图向导"
+            : "VIOLIN BUILDER · 小提琴图向导"
         : next === "pca"
           ? workflow === "rna_seq"
             ? "PCA BUILDER · 主成分分析向导"
@@ -1330,7 +1347,7 @@
   });
 
   document.addEventListener("input", function (event) {
-    const visualColor = closest(event.target, "#visual_point_color, #visual_reference_color, #visual_box_border_color, #visual_box_jitter_color");
+    const visualColor = closest(event.target, "#visual_point_color, #visual_reference_color, #visual_box_border_color, #visual_box_jitter_color, #visual_violin_border_color");
     if (visualColor) updateVisualColorSwatch(visualColor);
 
     const moduleSearch = closest(event.target, "#module_search");
@@ -1648,6 +1665,7 @@
     updateVisualColorSwatch(document.getElementById("visual_reference_color"));
     updateVisualColorSwatch(document.getElementById("visual_box_border_color"));
     updateVisualColorSwatch(document.getElementById("visual_box_jitter_color"));
+    updateVisualColorSwatch(document.getElementById("visual_violin_border_color"));
   }
 
   if (readStoredProject()) document.documentElement.classList.add("bp-restoring-project");

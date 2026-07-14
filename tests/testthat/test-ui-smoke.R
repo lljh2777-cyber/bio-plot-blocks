@@ -29,6 +29,7 @@ test_that("workspace UI renders the full primary surface", {
   expect_match(html, "前 30 行 · 全部列", fixed = TRUE)
   expect_match(html, "visual_chart_volcano")
   expect_match(html, "visual_chart_boxplot")
+  expect_match(html, "visual_chart_violin")
   expect_match(html, "visual_chart_pca")
   expect_match(html, "visual_box_border_color")
   expect_match(html, "visual_box_show_outliers")
@@ -38,7 +39,13 @@ test_that("workspace UI renders the full primary surface", {
   expect_match(html, "visual_box_jitter_size")
   expect_match(html, "visual_box_jitter_alpha")
   expect_match(html, "visual_box_jitter_width")
+  expect_match(html, "visual_violin_border_color")
+  expect_match(html, "visual_violin_scale")
+  expect_match(html, "visual_violin_trim")
+  expect_match(html, "visual_violin_show_median")
   expect_match(html, "geom_jitter", fixed = TRUE)
+  expect_match(html, "小提琴图", fixed = TRUE)
+  expect_match(html, "表达小提琴图", fixed = TRUE)
   expect_match(html, "bp-boxplot-overlap-warning", fixed = TRUE)
   expect_match(html, "可能出现重叠或颜色加深", fixed = TRUE)
   expect_match(html, "bp-visual-chart-requirement")
@@ -100,11 +107,12 @@ test_that("visual and advanced modes share a visibility-aware shell", {
   expect_match(js, "scrollVisualSection", fixed = TRUE)
   expect_match(js, "restoreVisualPageOrigin", fixed = TRUE)
   expect_match(js, "if (section) scrollVisualSection(section);", fixed = TRUE)
-  expect_match(js, '["scatter", "volcano", "boxplot", "pca"]', fixed = TRUE)
+  expect_match(js, '["scatter", "volcano", "boxplot", "violin", "pca"]', fixed = TRUE)
   expect_match(js, "#visual_point_color, #visual_reference_color", fixed = TRUE)
   expect_match(js, "#visual_box_jitter_color", fixed = TRUE)
   expect_match(css, ".bp-volcano-only[hidden]", fixed = TRUE)
   expect_match(css, ".bp-boxplot-only[hidden]", fixed = TRUE)
+  expect_match(css, ".bp-violin-only[hidden]", fixed = TRUE)
   expect_match(css, ".bp-pca-only[hidden]", fixed = TRUE)
   expect_match(css, ".bp-pca-source-card", fixed = TRUE)
   expect_match(css, ".bp-visual-source-card", fixed = TRUE)
@@ -143,7 +151,7 @@ test_that("visual and advanced modes share a visibility-aware shell", {
   expect_match(
     css,
     paste0(
-      'body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type="scatter"] {',
+      'body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type="violin"] {',
       "\n  order: 3;\n}"
     ),
     fixed = TRUE
@@ -151,8 +159,16 @@ test_that("visual and advanced modes share a visibility-aware shell", {
   expect_match(
     css,
     paste0(
-      'body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type="volcano"] {',
+      'body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type="scatter"] {',
       "\n  order: 4;\n}"
+    ),
+    fixed = TRUE
+  )
+  expect_match(
+    css,
+    paste0(
+      'body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type="volcano"] {',
+      "\n  grid-column: 1 / -1;\n  order: 5;\n}"
     ),
     fixed = TRUE
   )

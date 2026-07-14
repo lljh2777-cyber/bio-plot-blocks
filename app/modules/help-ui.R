@@ -164,12 +164,16 @@ bp_help_visual_mode_intro <- function(language) {
         text = if (chinese) "箱线图可按需叠加 geom_jitter 原始观测点，并设置点颜色、大小、透明度与横向抖动宽度。开启时会自动隐藏箱线图离群点以避免重复；用户仍可重新开启并查看重叠提示，关闭抖动点后恢复此前设置。" else "Boxplots can overlay raw observations with geom_jitter and configure point color, size, opacity, and horizontal jitter width. Enabling jitter hides boxplot outliers to avoid duplicates; users may re-enable them with an overlap warning, and disabling jitter restores the previous setting."
       ),
       list(
+        title = if (chinese) "小提琴图密度分布" else "Violin density distributions",
+        text = if (chinese) "小提琴图使用 geom_violin 展示各组数值分布的核密度形状，可设置填充、边框、宽度、透明度、尾部裁切、面积缩放方式和中位数线。" else "Violin plots use geom_violin to show each group's kernel-density shape, with controls for fill, outline, width, opacity, tail trimming, width scaling, and a median line."
+      ),
+      list(
         title = if (chinese) "共享同一项目" else "One shared project",
         text = if (chinese) "两个模式读写同一份语义化项目状态，切换模式不会复制或丢失图形设置。" else "Both modes read and write the same semantic project state, so switching never duplicates or discards plot settings."
       ),
       list(
-        title = if (chinese) "散点图、火山图、箱线图与 PCA" else "Scatter, volcano, boxplot, and PCA builders",
-        text = if (chinese) "除常用散点图、火山图和箱线图外，PCA 支持表达矩阵与可选样本信息表，按样本 ID 关联，配置矩阵方向、转换、高变特征、中心化/标准化、主成分、分组与置信椭圆。" else "Alongside scatter, volcano, and boxplot builders, PCA accepts an expression matrix plus optional sample metadata, joins by sample ID, and configures orientation, transformation, variable features, centering/scaling, components, grouping, and confidence ellipses."
+        title = if (chinese) "散点图、火山图、箱线图、小提琴图与 PCA" else "Scatter, volcano, boxplot, violin, and PCA builders",
+        text = if (chinese) "除常用散点图、火山图、箱线图和小提琴图外，PCA 支持表达矩阵与可选样本信息表，按样本 ID 关联，配置矩阵方向、转换、高变特征、中心化/标准化、主成分、分组与置信椭圆。" else "Alongside scatter, volcano, boxplot, and violin builders, PCA accepts an expression matrix plus optional sample metadata, joins by sample ID, and configures orientation, transformation, variable features, centering/scaling, components, grouping, and confidence ellipses."
       ),
       list(
         title = if (chinese) "可复现的 PCA 结果" else "Reproducible PCA outputs",

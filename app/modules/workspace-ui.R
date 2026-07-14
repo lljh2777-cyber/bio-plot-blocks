@@ -239,6 +239,12 @@ bp_workspace_ui <- function(root) {
                   rna_requirement = "表达值 + 实验分组"
                 ),
                 bp_visual_chart_card(
+                  "visual_chart_violin", "violin",
+                  "小提琴图", "展示分组数据的密度分布", "violin", "1 个分组字段 + 1 个数值字段",
+                  rna_title = "表达小提琴图", rna_subtitle = "比较实验组表达密度",
+                  rna_requirement = "表达值 + 实验分组"
+                ),
+                bp_visual_chart_card(
                   "visual_chart_pca", "pca",
                   "降维图", "对数值矩阵进行降维", "mapping", "数值矩阵；当前方法为 PCA",
                   rna_title = "PCA 图", rna_subtitle = "检查样本结构、批次与离群",
@@ -302,7 +308,7 @@ bp_workspace_ui <- function(root) {
               id = "visual-section-fields",
               class = "bp-visual-config-section",
               bp_visual_section_header(
-                "03", "映射数据字段", "散点图需要 X/Y；火山图需要倍数变化和显著性字段；箱线图需要分组和数值字段；PCA 可选择主成分、颜色、形状和标签。",
+                "03", "映射数据字段", "散点图需要 X/Y；火山图需要倍数变化和显著性字段；箱线图和小提琴图需要分组与数值字段；PCA 可选择主成分、颜色、形状和标签。",
                 shiny::actionButton("visual_recommend_fields", "智能推荐", icon = shiny::icon("wand-magic-sparkles"), class = "bp-link-button")
               ),
               htmltools::tags$div(class = "bp-non-pca-only", shiny::uiOutput("visual_field_recommendation")),
@@ -411,6 +417,22 @@ bp_workspace_ui <- function(root) {
                   shiny::numericInput("visual_box_jitter_alpha", "抖动点透明度", value = 0.55, min = 0, max = 1, step = 0.05, width = "100%"),
                   shiny::numericInput("visual_box_jitter_width", "横向抖动宽度", value = 0.16, min = 0, max = 1, step = 0.01, width = "100%")
                 )
+              ),
+              htmltools::tags$div(
+                class = "bp-visual-control-grid bp-violin-only",
+                hidden = "hidden",
+                htmltools::tags$div(
+                  class = "bp-visual-color-control",
+                  htmltools::tags$span(class = "bp-visual-color-swatch"),
+                  shiny::textInput("visual_violin_border_color", "小提琴边框色", value = "#334155", width = "100%")
+                ),
+                shiny::selectInput(
+                  "visual_violin_scale", "宽度缩放方式",
+                  choices = c("面积一致" = "area", "按样本数量" = "count", "最大宽度一致" = "width"),
+                  width = "100%"
+                ),
+                shiny::checkboxInput("visual_violin_trim", "将密度尾部裁切到观测范围", value = TRUE),
+                shiny::checkboxInput("visual_violin_show_median", "显示中位数线", value = TRUE)
               ),
               htmltools::tags$div(
                 class = "bp-pca-only bp-pca-ellipse-card",
