@@ -238,6 +238,13 @@ bp_chart_data_compatibility <- function(source, chart_type, data = NULL) {
     if ((passport$numeric_columns %||% 0L) >= 2L) return(result("direct", "可按通用数值矩阵配置 PCA；请确认矩阵方向。"))
     return(result("incompatible", "有效数值特征不足。", "选择至少包含 2 个数值特征的数据"))
   }
+  if (identical(chart_type, "heatmap")) {
+    if (identical(semantic, "raw_counts")) return(result("transform", "将执行低表达过滤、TMM 归一化、logCPM 和按基因 Z-score。", "确认热图分析配方"))
+    if (semantic %in% c("normalized_expression", "heatmap_matrix")) return(result("direct", "数据满足热图表达矩阵契约。"))
+    if (semantic %in% c("sample_metadata", "differential_results", "pca_scores", "pca_loadings")) return(result("incompatible", "该语义类型不是多样本表达矩阵。", "选择 Raw Count 或标准化表达矩阵"))
+    if ((passport$numeric_columns %||% 0L) >= 2L) return(result("direct", "可按通用数值矩阵绘制热图；请确认矩阵方向。"))
+    return(result("incompatible", "有效数值特征不足。", "选择至少包含 2 个数值特征的表达矩阵"))
+  }
   if (identical(chart_type, "volcano")) {
     if (identical(semantic, "differential_results")) return(result("direct", "差异分析结果可直接映射到火山图。"))
     if (identical(semantic, "raw_counts")) return(result("supplement", "Raw count 需要样本分组、比较关系和差异分析。", "补充样本信息和对照关系"))

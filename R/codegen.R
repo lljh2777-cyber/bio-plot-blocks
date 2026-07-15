@@ -176,12 +176,12 @@ bp_generate_code <- function(project, registry = NULL, include_setup = FALSE) {
   registry <- registry %||% bp_load_registry()
   lines <- bp_generate_lines(project, registry)
   plot_code <- paste(vapply(lines, `[[`, character(1), "text"), collapse = "\n")
-  analysis_code <- bp_generate_pca_analysis_code(project)
+  analysis_code <- bp_generate_analysis_code(project)
   code <- paste(Filter(nzchar, c(analysis_code, plot_code)), collapse = "\n\n")
   if (isTRUE(include_setup) && identical(project$settings$namespace_policy %||% "bare", "bare")) {
     setup_lines <- "library(ggplot2)"
-    if (identical(project$visual_config$active_chart_type %||% "scatter", "pca")) {
-      setup_lines <- c(setup_lines, bp_pca_setup_lines(project))
+    if ((project$visual_config$active_chart_type %||% "scatter") %in% c("pca", "heatmap")) {
+      setup_lines <- c(setup_lines, bp_analysis_setup_lines(project))
     } else {
       active_id <- project$active_data_source_id %||% "dataset_example"
       sources <- project$data_sources %||% list()

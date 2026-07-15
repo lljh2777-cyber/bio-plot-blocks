@@ -249,6 +249,12 @@ bp_workspace_ui <- function(root) {
                   "降维图", "对数值矩阵进行降维", "mapping", "数值矩阵；当前方法为 PCA",
                   rna_title = "PCA 图", rna_subtitle = "检查样本结构、批次与离群",
                   rna_requirement = "表达矩阵；可选样本分组信息"
+                ),
+                bp_visual_chart_card(
+                  "visual_chart_heatmap", "heatmap",
+                  "热图", "用颜色展示数值矩阵并聚类行列", "heatmap", "多样本数值矩阵；可选样本信息表",
+                  rna_title = "差异基因热图", rna_subtitle = "从 DEG 结果提取基因并比较样本表达模式",
+                  rna_requirement = "表达矩阵 + 差异分析结果；可选样本信息表"
                 )
               ),
               shiny::uiOutput("visual_chart_compatibility")
@@ -270,6 +276,43 @@ bp_workspace_ui <- function(root) {
                   shiny::selectizeInput("visual_pca_feature_id_field", "特征 ID 列", choices = NULL, options = list(placeholder = "自动 / 行名"), width = "100%"),
                   shiny::selectizeInput("visual_pca_expression_sample_id_field", "表达表样本 ID 列", choices = NULL, options = list(placeholder = "自动 / 列名或行名"), width = "100%")
                 ),
+                shiny::uiOutput("visual_data_semantics"),
+                htmltools::tags$div(
+                  class = "bp-heatmap-only bp-heatmap-source-stage bp-heatmap-expression-preprocess",
+                  hidden = "hidden",
+                  htmltools::tags$h3(class = "bp-pca-subheading", "1. 表达矩阵预处理"),
+                  htmltools::tags$p(
+                    class = "bp-pca-source-help",
+                    "Raw Count 必须先完成低表达过滤、TMM 归一化和 logCPM 转换；已经是 CPM/logCPM 的矩阵不会重复归一化。"
+                  ),
+                  shiny::uiOutput("visual_heatmap_recipe_panel")
+                ),
+                htmltools::tags$div(
+                  class = "bp-heatmap-only bp-heatmap-source-stage bp-heatmap-deg-source",
+                  hidden = "hidden",
+                  htmltools::tags$h3(class = "bp-pca-subheading", "2. 差异基因筛选"),
+                  htmltools::tags$p(
+                    class = "bp-pca-source-help",
+                    "选择 DEG 结果后，软件会按基因 ID 从上一步得到的表达矩阵中提取显著基因；Raw Count 使用转换后的 logCPM 矩阵。"
+                  ),
+                  shiny::selectInput("visual_heatmap_deg_source", "差异分析结果", choices = c("不使用差异结果" = ""), selectize = FALSE, width = "100%"),
+                  htmltools::tags$div(
+                    class = "bp-pca-source-grid",
+                    shiny::selectizeInput("visual_heatmap_deg_gene_id", "DEG 基因 ID 列", choices = NULL, options = list(placeholder = "自动识别 ENSEMBL / SYMBOL"), width = "100%"),
+                    shiny::selectizeInput("visual_heatmap_deg_status", "显著性/调控状态列", choices = NULL, options = list(placeholder = "自动识别 regulated / status"), width = "100%")
+                  ),
+                  shiny::selectizeInput(
+                    "visual_heatmap_deg_exclude", "排除的非显著状态", choices = c("normal", "NS", "not significant", "non-significant"),
+                    selected = c("normal", "NS", "not significant", "non-significant"), multiple = TRUE,
+                    options = list(create = TRUE, placeholder = "例如 normal、NS"), width = "100%"
+                  ),
+                  shiny::actionButton(
+                    "visual_heatmap_validate_deg", "验证并提取差异基因",
+                    icon = shiny::icon("link"), class = "bp-command-button bp-command-primary"
+                  ),
+                  shiny::uiOutput("visual_heatmap_deg_match_summary")
+                ),
+                htmltools::tags$h3(class = "bp-heatmap-only bp-pca-subheading bp-heatmap-metadata-heading", hidden = "hidden", "3. 样本注释（可选）"),
                 shiny::selectInput("visual_pca_metadata_source", "样本信息表（可选）", choices = c("不使用样本信息" = ""), selectize = FALSE, width = "100%"),
                 htmltools::tags$div(
                   class = "bp-pca-source-grid",
@@ -301,14 +344,13 @@ bp_workspace_ui <- function(root) {
                     shiny::uiOutput("visual_active_data_preview")
                   )
                 )
-              ),
-              shiny::uiOutput("visual_data_semantics")
+              )
             ),
             htmltools::tags$section(
               id = "visual-section-fields",
               class = "bp-visual-config-section",
               bp_visual_section_header(
-                "03", "映射数据字段", "散点图需要 X/Y；火山图需要倍数变化和显著性字段；箱线图和小提琴图需要分组与数值字段；PCA 可选择主成分、颜色、形状和标签。",
+                "03", "映射数据字段", "散点图需要 X/Y；火山图需要倍数变化和显著性字段；箱线图和小提琴图需要分组与数值字段；PCA 可选择主成分和分组映射；热图可设置高变基因、样本注释、排列与拆分。",
                 shiny::actionButton("visual_recommend_fields", "智能推荐", icon = shiny::icon("wand-magic-sparkles"), class = "bp-link-button")
               ),
               htmltools::tags$div(class = "bp-non-pca-only", shiny::uiOutput("visual_field_recommendation")),
@@ -365,6 +407,46 @@ bp_workspace_ui <- function(root) {
                   shiny::checkboxInput("visual_pca_scale", "标准化（scale）", value = FALSE)
                 ),
                 shiny::uiOutput("visual_pca_result_summary")
+              ),
+              htmltools::tags$div(
+                class = "bp-heatmap-only bp-pca-fields-card",
+                hidden = "hidden",
+                htmltools::tags$div(
+                  class = "bp-heatmap-intro",
+                  bp_icon("heatmap", 18),
+                  htmltools::tags$div(
+                    htmltools::tags$strong("差异基因表达热图"),
+                    htmltools::tags$p("只有 logCPM 中间矩阵和 DEG 匹配均就绪后，才会在最终预览中执行按基因 Z-score、注释和聚类。")
+                  )
+                ),
+                htmltools::tags$h3(class = "bp-pca-subheading", "特征与聚类"),
+                htmltools::tags$div(
+                  class = "bp-pca-preprocess-grid",
+                  shiny::selectInput("visual_heatmap_feature_mode", "热图基因来源", choices = c("差异结果中的显著基因" = "differential_results", "表达矩阵中的高变基因" = "high_variance", "表达矩阵全部基因" = "all"), width = "100%"),
+                  shiny::selectInput("visual_heatmap_feature_count", "高变基因", choices = c("前 25" = "25", "前 50" = "50", "前 100" = "100", "前 200" = "200", "全部" = "all", "自定义" = "custom"), selected = "50", width = "100%"),
+                  shiny::numericInput("visual_heatmap_custom_feature_count", "自定义基因数", value = 50, min = 2, step = 10, width = "100%"),
+                  shiny::selectInput("visual_heatmap_missing_policy", "缺失值", choices = c("停止并提示" = "stop", "移除含缺失值的基因" = "omit_features"), width = "100%"),
+                  shiny::selectInput("visual_heatmap_sample_order", "样本排列", choices = c("按表达模式自动聚类" = "auto_cluster", "按实验组固定排列" = "group_fixed", "按实验组拆分热图" = "group_split"), width = "100%")
+                ),
+                htmltools::tags$div(
+                  class = "bp-pca-check-grid",
+                  shiny::checkboxInput("visual_heatmap_remove_zero_variance", "移除零方差基因", value = TRUE),
+                  shiny::checkboxInput("visual_heatmap_row_zscore", "按基因 Z-score", value = TRUE),
+                  shiny::checkboxInput("visual_heatmap_cluster_rows", "聚类基因", value = TRUE),
+                  shiny::checkboxInput("visual_heatmap_cluster_columns", "聚类样本", value = TRUE)
+                ),
+                htmltools::tags$h3(class = "bp-pca-subheading", "样本注释与分组"),
+                htmltools::tags$div(
+                  class = "bp-pca-preprocess-grid",
+                  shiny::selectizeInput("visual_heatmap_group", "实验分组字段", choices = NULL, options = list(placeholder = "例如 Group / Condition"), width = "100%"),
+                  shiny::selectizeInput("visual_heatmap_annotations", "样本属性色条", choices = NULL, multiple = TRUE, options = list(placeholder = "可多选 Batch、性别、时间点等"), width = "100%")
+                ),
+                htmltools::tags$div(
+                  class = "bp-pca-check-grid",
+                  shiny::checkboxInput("visual_heatmap_show_sample_names", "显示样本名", value = FALSE),
+                  shiny::checkboxInput("visual_heatmap_show_feature_names", "显示基因名", value = FALSE)
+                ),
+                shiny::uiOutput("visual_heatmap_result_summary")
               )
             ),
             htmltools::tags$section(
@@ -372,7 +454,7 @@ bp_workspace_ui <- function(root) {
               class = "bp-visual-config-section",
               bp_visual_section_header("04", "设置常用样式", "仅展示高频选项；原有高级参数不会被删除。"),
               htmltools::tags$div(
-                class = "bp-visual-control-grid",
+                class = "bp-visual-control-grid bp-non-pca-only",
                 htmltools::tags$div(class = "bp-visual-color-control", `data-visual-style` = "primary-color", htmltools::tags$span(class = "bp-visual-color-swatch"), shiny::textInput("visual_point_color", "点颜色", value = "#2C7FB8", width = "100%")),
                 htmltools::tags$div(class = "bp-visual-size-control", shiny::numericInput("visual_point_size", "固定点大小", value = 2, min = 0.1, max = 20, step = 0.1, width = "100%")),
                 shiny::numericInput("visual_alpha", "透明度", value = 0.72, min = 0, max = 1, step = 0.05, width = "100%"),
@@ -460,6 +542,17 @@ bp_workspace_ui <- function(root) {
                   shiny::numericInput("visual_reference_width", "虚线宽度", value = 0.6, min = 0.1, max = 10, step = 0.1, width = "100%")
                 )
               ),
+              htmltools::tags$div(
+                class = "bp-heatmap-only bp-heatmap-style-card",
+                hidden = "hidden",
+                htmltools::tags$strong("热图色阶"),
+                htmltools::tags$div(
+                  class = "bp-visual-control-grid",
+                  htmltools::tags$div(class = "bp-visual-color-control", htmltools::tags$span(class = "bp-visual-color-swatch"), shiny::textInput("visual_heatmap_low_color", "低表达", value = "#2166AC", width = "100%")),
+                  htmltools::tags$div(class = "bp-visual-color-control", htmltools::tags$span(class = "bp-visual-color-swatch"), shiny::textInput("visual_heatmap_mid_color", "中点", value = "#F7F7F7", width = "100%")),
+                  htmltools::tags$div(class = "bp-visual-color-control", htmltools::tags$span(class = "bp-visual-color-swatch"), shiny::textInput("visual_heatmap_high_color", "高表达", value = "#B2182B", width = "100%"))
+                )
+              ),
               shiny::uiOutput("visual_advanced_state")
             ),
             htmltools::tags$section(
@@ -486,6 +579,12 @@ bp_workspace_ui <- function(root) {
                 shiny::uiOutput("visual_pca_normalized_export"),
                 shiny::downloadButton("download_pca_scores", "导出 PCA 得分 CSV", class = "bp-command-button"),
                 shiny::downloadButton("download_pca_loadings", "导出 PCA 载荷 CSV", class = "bp-command-button")
+              ),
+              htmltools::tags$div(
+                class = "bp-heatmap-only bp-pca-export-actions",
+                hidden = "hidden",
+                shiny::uiOutput("visual_heatmap_normalized_export"),
+                shiny::downloadButton("download_heatmap_matrix", "导出热图矩阵 CSV", class = "bp-command-button")
               )
             )
           )
@@ -622,7 +721,7 @@ bp_workspace_ui <- function(root) {
       htmltools::tags$section(
         class = "bp-visual-actions bp-visual-surface",
         htmltools::tags$div(class = "bp-visual-action-status", shiny::uiOutput("visual_action_status")),
-        shiny::checkboxInput("visual_auto_preview", "自动预览", value = TRUE),
+        shiny::checkboxInput("visual_auto_preview", "自动预览", value = FALSE),
         shiny::actionButton("visual_run_preview", "生成并预览", icon = shiny::icon("play"), class = "bp-command-button bp-command-primary")
       ),
       htmltools::tags$footer(

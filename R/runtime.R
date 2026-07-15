@@ -63,7 +63,7 @@ bp_execute_project <- function(
     withCallingHandlers(
       {
         setTimeLimit(elapsed = timeout_seconds, transient = TRUE)
-        analysis_code <- bp_generate_pca_analysis_code(project)
+        analysis_code <- bp_generate_analysis_code(project)
         if (nzchar(analysis_code)) eval(parse(text = analysis_code, keep.source = FALSE), envir = environment)
         expression <- bp_plot_language(project, registry)
         plot <- eval(expression, envir = environment)
@@ -110,7 +110,8 @@ bp_execute_project <- function(
 
 bp_render_preview_to_files <- function(project, root, status_path, image_path, datasets = list()) {
   options(BioPlotBlocks.root = root)
-  result <- bp_execute_project(project, datasets = datasets)
+  timeout_seconds <- if (identical(project$visual_config$active_chart_type %||% "", "heatmap")) 45 else 12
+  result <- bp_execute_project(project, datasets = datasets, timeout_seconds = timeout_seconds)
   if (isTRUE(result$ok)) {
     grDevices::png(
       filename = image_path,
@@ -137,7 +138,7 @@ bp_start_preview_process <- function(project, root, status_path, image_path, dat
       options(BioPlotBlocks.root = root)
       files <- list.files(file.path(root, "R"), pattern = "\\.R$", full.names = TRUE)
       priority <- c(
-        "ir-nodes.R", "module-registry.R", "module-instance.R", "data-sources.R", "rna-seq.R", "pca.R", "visual-config.R", "codegen.R",
+        "ir-nodes.R", "module-registry.R", "module-instance.R", "data-sources.R", "rna-seq.R", "pca.R", "heatmap.R", "visual-config.R", "codegen.R",
         "parser.R", "project-store.R", "diagnostics.R", "runtime.R", "templates.R",
         "ui-bindings.R"
       )

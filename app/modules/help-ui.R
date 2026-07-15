@@ -172,8 +172,8 @@ bp_help_visual_mode_intro <- function(language) {
         text = if (chinese) "两个模式读写同一份语义化项目状态，切换模式不会复制或丢失图形设置。" else "Both modes read and write the same semantic project state, so switching never duplicates or discards plot settings."
       ),
       list(
-        title = if (chinese) "散点图、火山图、箱线图、小提琴图与 PCA" else "Scatter, volcano, boxplot, violin, and PCA builders",
-        text = if (chinese) "除常用散点图、火山图、箱线图和小提琴图外，PCA 支持表达矩阵与可选样本信息表，按样本 ID 关联，配置矩阵方向、转换、高变特征、中心化/标准化、主成分、分组与置信椭圆。" else "Alongside scatter, volcano, boxplot, and violin builders, PCA accepts an expression matrix plus optional sample metadata, joins by sample ID, and configures orientation, transformation, variable features, centering/scaling, components, grouping, and confidence ellipses."
+        title = if (chinese) "散点图、火山图、分布图、PCA 与热图" else "Scatter, volcano, distributions, PCA, and heatmap builders",
+        text = if (chinese) "除散点图、火山图、箱线图和小提琴图外，PCA 与热图均支持表达矩阵及可选样本信息表。RNA-seq 差异基因热图还可关联 DEG 结果，排除 normal / NS 后按 ENSEMBL、SYMBOL 等基因 ID 提取表达矩阵中的显著基因。" else "Alongside scatter, volcano, boxplot, and violin builders, PCA and heatmaps accept expression matrices plus optional sample metadata. RNA-seq DEG heatmaps can also join differential results, exclude normal/NS rows, and extract significant genes from the expression matrix by ENSEMBL, SYMBOL, or another gene ID."
       ),
       list(
         title = if (chinese) "可复现的 PCA 结果" else "Reproducible PCA outputs",
@@ -181,11 +181,15 @@ bp_help_visual_mode_intro <- function(language) {
       ),
       list(
         title = if (chinese) "Raw count 引导分析" else "Guided raw-count analysis",
-        text = if (chinese) "数据护照只提出语义建议；用户确认 Raw count 和 PCA 配方后，软件才执行低表达过滤、edgeR TMM + logCPM（或 log2 快速探索），并生成只读标准化表达、PCA 得分与载荷来源链。" else "The data passport only suggests semantics. After the user confirms raw counts and the PCA recipe, BioPlotBlocks filters low expression, runs edgeR TMM + logCPM (or the log2 exploratory fallback), and creates read-only normalized-expression, PCA-score, and loading lineage."
+        text = if (chinese) "数据护照只提出语义建议。Raw Count 热图分为三个显式阶段：先生成并预览 logCPM 中间矩阵；再验证 DEG 基因 ID 并预览尚未 Z-score 的匹配矩阵；最后点击“生成最终热图”才执行基因 Z-score、样本注释和聚类。任何阶段都不会覆盖原始计数。" else "The data passport only suggests semantics. The raw-count heatmap has three explicit stages: generate and inspect an intermediate logCPM matrix; validate DEG identifiers and inspect the matched matrix before Z-scoring; then click Generate final heatmap to apply gene-wise Z-scores, annotations, and clustering. No stage overwrites the source counts."
+      ),
+      list(
+        title = if (chinese) "热图样本注释" else "Heatmap sample annotations",
+        text = if (chinese) "没有样本信息表时，样本按表达模式自动聚类；有关联的样本信息表时，可显示 Control、Treatment 等分组以及 Batch、性别、时间点等多条属性色条，并可按实验组固定排列或拆分热图。" else "Without sample metadata, samples are clustered from expression patterns. With linked metadata, the heatmap can display group bars such as Control and Treatment plus multiple attributes such as batch, sex, and time point, then keep samples in group order or split the heatmap by group."
       ),
       list(
         title = if (chinese) "自动预览" else "Automatic preview",
-        text = if (chinese) "有效设置会自动运行本地 ggplot2；失败时保留上一次成功图片，并显示可滚动的错误信息。" else "Valid edits run local ggplot2 automatically. On failure, the last successful image stays visible with scrollable error details."
+        text = if (chinese) "自动预览默认关闭；启用后，有效设置会自动运行本地 ggplot2。失败时保留上一次成功图片，并显示可滚动的错误信息。" else "Automatic preview is off by default. When enabled, valid edits run local ggplot2 automatically. On failure, the last successful image stays visible with scrollable error details."
       ),
       list(
         title = if (chinese) "高级设置已保留" else "Advanced settings preserved",
@@ -214,7 +218,7 @@ bp_help_document_zh <- function() {
       )),
       bp_help_note(
         "产品边界",
-        "BioPlotBlocks 是 R/ggplot2 代码编排器，并提供明确确认的 Raw count → PCA 最小分析配方；它不会静默修改原始数据。复杂差异设计、批次校正、通路分析等仍不在当前核心范围。"
+        "BioPlotBlocks 是 R/ggplot2 代码编排器，并提供明确确认的 Raw count → PCA / 热图最小分析配方；它不会静默修改原始数据。复杂差异设计、批次校正、通路分析等仍不在当前核心范围。"
       )
     ),
     bp_help_section(
@@ -228,8 +232,8 @@ bp_help_document_zh <- function() {
       )),
       bp_help_note("提示", "Assign plot 打开时，生成代码会赋值给指定对象（默认 p）；关闭后则只生成表达式。"),
       bp_help_note(
-        "Raw count → PCA 快速流程",
-        "选择 RNA-seq 引导，先导入并仅注册 count 矩阵与可选样本信息表；确认数据语义和矩阵方向，再选择 PCA、检查 CPM 过滤及 TMM-logCPM 配方并点击“使用当前设置并生成”。标准化表达、PCA 得分和载荷会作为只读派生数据保留。"
+        "Raw count → PCA / 热图快速流程",
+        "选择 RNA-seq 引导，导入 count/CPM 表达矩阵、差异分析结果与可选样本信息表。Raw Count 先点击“生成 logCPM 中间矩阵”；随后指定两侧基因 ID、regulated/status 状态列及需要排除的 normal/NS，并点击“验证并提取差异基因”；检查匹配统计后再生成最终热图。"
       )
     ),
     bp_help_section(
@@ -371,7 +375,7 @@ bp_help_document_en <- function() {
         list(title = "Generated R", text = "See deterministic R code generated from module state and linked to selection."),
         list(title = "Status bar", text = "Review errors, warnings, semantic fidelity, schema, module count, and runtime.")
       )),
-      bp_help_note("Product boundary", "BioPlotBlocks composes R/ggplot2 code and provides an explicitly confirmed raw-count-to-PCA minimal recipe. It never silently changes source data. Complex differential designs, batch correction, and pathway analysis remain outside the current core scope.")
+      bp_help_note("Product boundary", "BioPlotBlocks composes R/ggplot2 code and provides explicitly confirmed raw-count-to-PCA and raw-count-to-heatmap minimal recipes. It never silently changes source data. Complex differential designs, batch correction, and pathway analysis remain outside the current core scope.")
     ),
     bp_help_section(
       "en", "quickstart", "02", "Quick start",
@@ -384,8 +388,8 @@ bp_help_document_en <- function() {
       )),
       bp_help_note("Tip", "When Assign plot is enabled, the generated code assigns the result to the chosen symbol (p by default). Disable it to emit only the expression."),
       bp_help_note(
-        "Raw count → PCA quick path",
-        "Choose RNA-seq Guided, import and register the count matrix plus optional sample metadata, confirm semantics and orientation, then select PCA, review the CPM filter and TMM-logCPM recipe, and click Use current settings and generate. Normalized expression, scores, and loadings remain available as read-only derived data."
+        "Raw count → PCA / heatmap quick path",
+        "Choose RNA-seq Guided and import a count/CPM expression matrix, differential results, and optional sample metadata. For raw counts, first generate the intermediate logCPM matrix. Then choose the gene IDs on both sides, the regulated/status field, and normal/NS values to exclude, and validate the DEG extraction. Generate the final heatmap only after reviewing the match statistics."
       )
     ),
     bp_help_section(

@@ -99,19 +99,20 @@ bp_visual_chart_defaults <- function(chart_type, project = NULL) {
     boxplot = bp_visual_boxplot_defaults(project),
     violin = bp_visual_violin_defaults(project),
     pca = bp_pca_defaults(project),
+    heatmap = bp_heatmap_defaults(project),
     bp_visual_scatter_defaults(project)
   )
 }
 
 bp_visual_repair_cross_chart_labels <- function(config, chart_type, project = NULL) {
-  chart_type <- if (chart_type %in% c("scatter", "volcano", "boxplot", "violin", "pca")) chart_type else "scatter"
+  chart_type <- if (chart_type %in% c("scatter", "volcano", "boxplot", "violin", "pca", "heatmap")) chart_type else "scatter"
   config <- config %||% bp_visual_chart_defaults(chart_type, project)
   fields <- c("title", "x_label", "y_label", "legend_title")
   signature <- function(value) {
     vapply(fields, function(field) bp_visual_scalar_character(value[[field]], ""), character(1))
   }
   current <- signature(config)
-  other_types <- setdiff(c("scatter", "volcano", "boxplot", "violin", "pca"), chart_type)
+  other_types <- setdiff(c("scatter", "volcano", "boxplot", "violin", "pca", "heatmap"), chart_type)
   inherited <- any(vapply(other_types, function(other_type) {
     other <- signature(bp_visual_chart_defaults(other_type, project))
     any(nzchar(other)) && identical(current, other)
@@ -633,7 +634,7 @@ bp_apply_visual_scatter_config <- function(project, config, registry = NULL) {
       "volcano_fc_threshold", "volcano_significance_threshold",
       "visual_boxplot_layer", "visual_boxplot_jitter", "visual_boxplot_fill_scale",
       "visual_violin_layer", "visual_violin_fill_scale",
-      "visual_pca_ellipse"
+      "visual_pca_ellipse", "visual_heatmap_plot"
     )
   }, project$modules %||% list())
   modules <- project$modules %||% list()
@@ -852,7 +853,7 @@ bp_validate_visual_scatter_config <- function(config, columns = character()) {
 
 bp_visual_chart_type <- function(project) {
   chart_type <- project$visual_config$active_chart_type %||% "scatter"
-  if (chart_type %in% c("scatter", "volcano", "boxplot", "violin", "pca")) chart_type else "scatter"
+  if (chart_type %in% c("scatter", "volcano", "boxplot", "violin", "pca", "heatmap")) chart_type else "scatter"
 }
 
 bp_visual_volcano_field_is_transformed <- function(field) {
@@ -1076,6 +1077,8 @@ bp_visual_config_from_project <- function(project) {
     bp_visual_violin_config_from_project(project)
   } else if (identical(bp_visual_chart_type(project), "pca")) {
     bp_pca_config_from_project(project)
+  } else if (identical(bp_visual_chart_type(project), "heatmap")) {
+    bp_heatmap_config_from_project(project)
   } else {
     bp_visual_scatter_config_from_project(project)
   }
@@ -1624,6 +1627,75 @@ bp_validate_visual_pca_config <- function(config, columns = character()) {
   list(valid = !length(errors), errors = unique(errors))
 }
 
+bp_apply_visual_heatmap_config <- function(project, config, registry = NULL, analysis_result = NULL) {
+  registry <- registry %||% bp_load_registry()
+  project <- unserialize(serialize(project, NULL))
+  config <- bp_normalize_heatmap_config(config, project)
+  project <- bp_heatmap_upsert_derived_sources(project, config, analysis_result)
+
+  heatmap <- bp_instantiate_module("core.raw_r", registry)
+  heatmap$arguments$expression <- bp_argument(
+    "raw_expression", bp_raw_expression("heatmap_plot"), "nested_expression", "heatmap_plot"
+  )
+  heatmap$visual_managed <- TRUE
+  heatmap$visual_role <- "visual_heatmap_plot"
+  project$modules <- list(heatmap)
+  project$assignment <- utils::modifyList(
+    list(enabled = TRUE, target = "p", operator = "<-"),
+    project$assignment %||% list()
+  )
+  project$active_data_source_id <- "dataset_heatmap_matrix"
+  project$data_reference <- list(
+    strategy = "derived_analysis", source_id = "dataset_heatmap_matrix",
+    symbol = "heatmap_matrix", embedded = FALSE
+  )
+  project$mapping_config <- list(
+    dataset_id = "dataset_heatmap_matrix", plot_id = heatmap$instance_id,
+    mapping = list(), confirmed_by_user = TRUE
+  )
+  project$visual_config <- project$visual_config %||% list()
+  project$visual_config$active_chart_type <- "heatmap"
+  project$visual_config$heatmap <- config
+  project$analysis_recipes <- project$analysis_recipes %||% list()
+  project$analysis_recipes$heatmap <- list(
+    contract_version = "0.1.0",
+    stage = if (!is.null(analysis_result) && isTRUE(analysis_result$ok)) "plot_ready" else "configuration",
+    type = if (identical(config$feature_selection_mode, "differential_results")) "deg_heatmap" else if (identical(config$input_semantic_type, "raw_counts")) "raw_count_heatmap" else "expression_heatmap",
+    input_source_ids = Filter(nzchar, c(config$expression_source_id, config$metadata_source_id, config$differential_source_id)),
+    confirmed_signature = config$raw_count_recipe_confirmed_signature %||% "",
+    differential_match_signature = config$differential_match_confirmed_signature %||% "",
+    config = config,
+    package_versions = {
+      versions <- analysis_result$preparation$package_versions %||% list(R = as.character(getRversion()))
+      if (requireNamespace("ggplot2", quietly = TRUE)) versions$ggplot2 <- as.character(utils::packageVersion("ggplot2"))
+      if (requireNamespace("pheatmap", quietly = TRUE)) versions$pheatmap <- as.character(utils::packageVersion("pheatmap"))
+      if (requireNamespace("ggplotify", quietly = TRUE)) versions$ggplotify <- as.character(utils::packageVersion("ggplotify"))
+      versions
+    },
+    updated_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")
+  )
+  list(project = project, root_instance_id = heatmap$instance_id, config = config)
+}
+
+bp_validate_visual_heatmap_config <- function(config, columns = character()) {
+  config <- bp_normalize_heatmap_config(config)
+  errors <- character()
+  if (!nzchar(config$expression_source_id)) errors <- c(errors, "请选择热图表达矩阵数据源。")
+  if (identical(config$feature_selection_mode, "differential_results") && !nzchar(config$differential_source_id)) {
+    errors <- c(errors, "请选择差异分析结果，以便筛选显著基因。")
+  }
+  if (config$sample_order %in% c("group_fixed", "group_split") && !nzchar(config$metadata_source_id)) {
+    errors <- c(errors, "按实验组排列或拆分热图前，请先选择样本信息表。")
+  }
+  if (config$sample_order %in% c("group_fixed", "group_split") && !nzchar(config$group_field)) {
+    errors <- c(errors, "按实验组排列或拆分热图前，请先选择实验分组字段。")
+  }
+  if (identical(config$input_semantic_type, "raw_counts") && !isTRUE(config$row_zscore)) {
+    errors <- c(errors, "RNA-seq Raw Count 热图必须按基因执行 Z-score。")
+  }
+  list(valid = !length(errors), errors = unique(errors))
+}
+
 bp_apply_visual_config <- function(project, config, registry = NULL) {
   if (identical(config$chart_type %||% "scatter", "volcano")) {
     bp_apply_visual_volcano_config(project, config, registry)
@@ -1633,6 +1705,8 @@ bp_apply_visual_config <- function(project, config, registry = NULL) {
     bp_apply_visual_violin_config(project, config, registry)
   } else if (identical(config$chart_type %||% "scatter", "pca")) {
     bp_apply_visual_pca_config(project, config, registry)
+  } else if (identical(config$chart_type %||% "scatter", "heatmap")) {
+    bp_apply_visual_heatmap_config(project, config, registry)
   } else {
     bp_apply_visual_scatter_config(project, config, registry)
   }
@@ -1647,6 +1721,8 @@ bp_validate_visual_config <- function(config, columns = character()) {
     bp_validate_visual_violin_config(config, columns)
   } else if (identical(config$chart_type %||% "scatter", "pca")) {
     bp_validate_visual_pca_config(config, columns)
+  } else if (identical(config$chart_type %||% "scatter", "heatmap")) {
+    bp_validate_visual_heatmap_config(config, columns)
   } else {
     bp_validate_visual_scatter_config(config, columns)
   }

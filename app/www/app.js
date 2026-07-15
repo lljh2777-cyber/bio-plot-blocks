@@ -28,6 +28,8 @@
   let visualChartHandlerStarted = false;
   let visualWorkflowHandlerStarted = false;
   let visualPageScrollFrame = null;
+  let visualStepScrollFrame = null;
+  let visualStepResizeObserver = null;
   const projectStorageKey = "bioplotblocks.project.v0.2";
   const interfaceModeStorageKey = "bioplotblocks.interface-mode.v1";
   const pendingInputTimers = new Map();
@@ -89,8 +91,73 @@
 
   function setVisualStep(sectionId) {
     document.querySelectorAll(".bp-visual-step[data-visual-section]").forEach(function (button) {
-      button.classList.toggle("is-active", button.dataset.visualSection === sectionId);
+      const active = button.dataset.visualSection === sectionId;
+      button.classList.toggle("is-active", active);
+      if (active) button.setAttribute("aria-current", "step");
+      else button.removeAttribute("aria-current");
     });
+  }
+
+  function visualStepSections() {
+    return Array.from(document.querySelectorAll(".bp-visual-step[data-visual-section]"))
+      .map(function (button) {
+        return document.getElementById(button.dataset.visualSection);
+      })
+      .filter(function (section) {
+        return section && !section.hidden && section.getClientRects().length > 0;
+      });
+  }
+
+  function updateVisualStepFromScroll() {
+    if (!document.documentElement.classList.contains("bp-interface-visual")) return;
+    const sections = visualStepSections();
+    if (!sections.length) return;
+
+    const scroller = document.querySelector(".bp-visual-builder-scroll");
+    const contained = isContainedVisualLayout() && scroller;
+    const viewportRect = contained ? scroller.getBoundingClientRect() : null;
+    const viewportTop = contained ? viewportRect.top : 0;
+    const viewportBottom = contained ? viewportRect.bottom : window.innerHeight;
+    const viewportHeight = Math.max(1, viewportBottom - viewportTop);
+    const activationLine = viewportTop + Math.min(160, Math.max(72, viewportHeight * 0.24));
+    let activeSection = null;
+
+    sections.forEach(function (section) {
+      const rect = section.getBoundingClientRect();
+      if (rect.bottom > viewportTop + 8 && rect.top <= activationLine) activeSection = section;
+    });
+
+    if (!activeSection) {
+      activeSection = sections.find(function (section) {
+        const rect = section.getBoundingClientRect();
+        return rect.bottom > viewportTop && rect.top < viewportBottom;
+      });
+    }
+
+    if (contained && scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2) {
+      activeSection = sections[sections.length - 1];
+    }
+    if (activeSection) setVisualStep(activeSection.id);
+  }
+
+  function scheduleVisualStepSync() {
+    if (visualStepScrollFrame) return;
+    visualStepScrollFrame = window.requestAnimationFrame(function () {
+      visualStepScrollFrame = null;
+      updateVisualStepFromScroll();
+    });
+  }
+
+  function initializeVisualStepSync() {
+    const scroller = document.querySelector(".bp-visual-builder-scroll");
+    if (!visualStepResizeObserver && window.ResizeObserver && scroller) {
+      visualStepResizeObserver = new ResizeObserver(scheduleVisualStepSync);
+      visualStepResizeObserver.observe(scroller);
+      visualStepSections().forEach(function (section) {
+        visualStepResizeObserver.observe(section);
+      });
+    }
+    scheduleVisualStepSync();
   }
 
   function isContainedVisualLayout() {
@@ -173,7 +240,7 @@
   }
 
   function setVisualChartType(chartType) {
-    const next = ["scatter", "volcano", "boxplot", "violin", "pca"].includes(chartType) ? chartType : "scatter";
+    const next = ["scatter", "volcano", "boxplot", "violin", "pca", "heatmap"].includes(chartType) ? chartType : "scatter";
     const workflow = currentVisualWorkflowMode();
     document.body.dataset.visualChartType = next;
     document.querySelectorAll(".bp-visual-chart-card[data-chart-type]").forEach(function (button) {
@@ -196,15 +263,18 @@
     document.querySelectorAll(".bp-pca-only").forEach(function (element) {
       element.hidden = next !== "pca";
     });
+    document.querySelectorAll(".bp-heatmap-only").forEach(function (element) {
+      element.hidden = next !== "heatmap";
+    });
     document.querySelectorAll(".bp-non-pca-only").forEach(function (element) {
-      element.hidden = next === "pca";
+      element.hidden = ["pca", "heatmap"].includes(next);
     });
     if (window.jQuery) {
-      window.jQuery(next === "pca" ? ".bp-non-pca-only" : ".bp-pca-only").trigger("hidden");
-      window.jQuery(next === "pca" ? ".bp-pca-only" : ".bp-non-pca-only").trigger("shown");
+      window.jQuery(["pca", "heatmap"].includes(next) ? ".bp-non-pca-only" : ".bp-pca-only, .bp-heatmap-only").trigger("hidden");
+      window.jQuery(next === "pca" ? ".bp-pca-only" : next === "heatmap" ? ".bp-heatmap-only" : ".bp-non-pca-only").trigger("shown");
     }
     document.querySelectorAll(".bp-point-only").forEach(function (element) {
-      element.hidden = ["boxplot", "violin"].includes(next);
+      element.hidden = ["boxplot", "violin", "heatmap"].includes(next);
     });
     document.querySelectorAll(".bp-non-boxplot-only").forEach(function (element) {
       element.hidden = ["boxplot", "violin"].includes(next);
@@ -252,9 +322,24 @@
           ? workflow === "rna_seq"
             ? "PCA BUILDER · 主成分分析向导"
             : "DIMENSION REDUCTION · 降维图向导"
+          : next === "heatmap"
+            ? workflow === "rna_seq"
+              ? "DEG HEATMAP · 差异基因热图向导"
+              : "HEATMAP BUILDER · 热图向导"
           : workflow === "rna_seq"
             ? "GENE EXPRESSION SCATTER · 基因表达散点图向导"
             : "SCATTER BUILDER · 散点图向导";
+    const runPreview = document.getElementById("visual_run_preview");
+    if (runPreview) {
+      const label = next === "heatmap" ? "生成最终热图" : "生成并预览";
+      const textNode = Array.from(runPreview.childNodes).find(function (node) {
+        return node.nodeType === Node.TEXT_NODE && String(node.nodeValue || "").trim();
+      });
+      if (textNode) textNode.nodeValue = " " + label;
+      else runPreview.appendChild(document.createTextNode(" " + label));
+      runPreview.setAttribute("aria-label", label);
+    }
+    scheduleVisualStepSync();
   }
 
   function updateVisualColorSwatch(input) {
@@ -1347,7 +1432,7 @@
   });
 
   document.addEventListener("input", function (event) {
-    const visualColor = closest(event.target, "#visual_point_color, #visual_reference_color, #visual_box_border_color, #visual_box_jitter_color, #visual_violin_border_color");
+    const visualColor = closest(event.target, "#visual_point_color, #visual_reference_color, #visual_box_border_color, #visual_box_jitter_color, #visual_violin_border_color, #visual_heatmap_low_color, #visual_heatmap_mid_color, #visual_heatmap_high_color");
     if (visualColor) updateVisualColorSwatch(visualColor);
 
     const moduleSearch = closest(event.target, "#module_search");
@@ -1639,6 +1724,11 @@
     });
   }, true);
 
+  document.addEventListener("scroll", function (event) {
+    if (!closest(event.target, ".bp-visual-builder-scroll")) return;
+    scheduleVisualStepSync();
+  }, true);
+
   document.addEventListener("scroll", function () {
     if (window.innerWidth <= 760 || pickerPositionFrame || !document.querySelector(".bp-picker-group.is-open")) return;
     pickerPositionFrame = window.requestAnimationFrame(function () {
@@ -1657,6 +1747,7 @@
     initializeParameterValueHandler();
     initializeVisualChartHandler();
     initializeVisualWorkflowHandler();
+    initializeVisualStepSync();
     setHelpLanguage("zh");
     initializeHelpNavigation();
     initializeTextInputContinuity();
@@ -1677,7 +1768,9 @@
   }
   window.addEventListener("resize", constrainResizeLayout);
   window.addEventListener("resize", scheduleVisualPageOriginRestore);
+  window.addEventListener("resize", scheduleVisualStepSync);
   window.addEventListener("scroll", scheduleVisualPageOriginRestore, { passive: true });
+  window.addEventListener("scroll", scheduleVisualStepSync, { passive: true });
   document.addEventListener("shiny:connected", function () {
     setInterfaceMode(storedInterfaceMode(), false, true);
     refreshResizeHandles();
@@ -1685,6 +1778,7 @@
     initializeParameterValueHandler();
     initializeVisualChartHandler();
     initializeVisualWorkflowHandler();
+    initializeVisualStepSync();
     const workflowMode = document.querySelector('input[name="visual_workflow_mode"]:checked');
     setVisualWorkflowMode(workflowMode && workflowMode.value);
     initializeProjectPersistence();

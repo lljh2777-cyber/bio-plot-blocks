@@ -11,6 +11,19 @@ bp_new_scatter_project <- function(registry) {
   bp_ggplot_only_project(registry)
 }
 
+bp_initial_scatter_project <- function(registry) {
+  project <- bp_basic_scatter_project(registry)
+  config <- bp_visual_scatter_config_from_project(project)
+  config$chart_type <- "scatter"
+  config$data_source_id <- "dataset_example"
+  config$x_field <- "PC1"
+  config$y_field <- "PC2"
+  result <- bp_apply_visual_scatter_config(project, config, registry)
+  result$project$name <- "Untitled scatter plot"
+  result$project$analysis_workflow_mode <- "generic"
+  result$project
+}
+
 bp_category_filter <- function(category) {
   switch(
     category,
@@ -708,7 +721,7 @@ bp_data_source_mapping_modal <- function(source, data, project) {
 }
 
 bp_workspace_server <- function(input, output, session, registry, templates, root) {
-  initial <- bp_ggplot_only_project(registry)
+  initial <- bp_initial_scatter_project(registry)
   initial$visual_config <- initial$visual_config %||% list()
   initial$visual_config$active_chart_type <- "scatter"
   initial$visual_config$scatter <- bp_visual_scatter_config_from_project(initial)
@@ -762,7 +775,11 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     visual_sync_generation = 0L,
     visual_suppress_debounced = FALSE,
     visual_input_error = NULL,
-    last_commit_origin = NULL
+    last_commit_origin = NULL,
+    heatmap_preprocess_result = NULL,
+    heatmap_preprocess_signature = "",
+    heatmap_match_result = NULL,
+    heatmap_match_signature = ""
   )
 
   commit <- function(project, selected = state$selected, record_history = TRUE, origin = "advanced") {
@@ -778,6 +795,58 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     state$project <- project
     ids <- vapply(project$modules %||% list(), `[[`, character(1), "instance_id")
     state$selected <- if (length(ids) && selected %in% ids) selected else if (length(ids)) ids[[1]] else NULL
+  }
+
+  clear_heatmap_stage_cache <- function(from = c("preprocess", "match")) {
+    from <- match.arg(from)
+    objects <- shiny::isolate(state$data_objects)
+    if (identical(from, "preprocess")) {
+      state$heatmap_preprocess_result <- NULL
+      state$heatmap_preprocess_signature <- ""
+      objects[["dataset_normalized_expression"]] <- NULL
+    }
+    state$heatmap_match_result <- NULL
+    state$heatmap_match_signature <- ""
+    objects[["dataset_heatmap_matched_expression"]] <- NULL
+    if (identical(from, "preprocess")) objects[["dataset_heatmap_matrix"]] <- NULL
+    state$data_objects <- objects
+    invisible(TRUE)
+  }
+
+  set_heatmap_preview_waiting <- function(message, stage = "input") {
+    process <- shiny::isolate(state$preview_process)
+    if (!is.null(process) && process$is_alive()) process$kill()
+    state$preview_process <- NULL
+    state$preview_pending_image <- NULL
+    state$preview_image <- NULL
+    state$preview_status <- "waiting"
+    state$preview_result <- list(
+      ok = FALSE, error = NULL, warnings = list(), messages = list(),
+      waiting_message = message, pipeline_stage = stage
+    )
+    invisible(TRUE)
+  }
+
+  commit_heatmap_stage_config <- function(config, stage, origin) {
+    project <- bp_clone_project(state$project)
+    config <- bp_normalize_heatmap_config(config, project)
+    project$visual_config <- project$visual_config %||% list()
+    project$visual_config$active_chart_type <- "heatmap"
+    project$visual_config$heatmap <- config
+    project$analysis_recipes <- project$analysis_recipes %||% list()
+    project$analysis_recipes$heatmap <- utils::modifyList(
+      project$analysis_recipes$heatmap %||% list(),
+      list(
+        contract_version = "0.2.0", stage = stage,
+        type = if (identical(config$feature_selection_mode, "differential_results")) "deg_heatmap" else "expression_heatmap",
+        input_source_ids = Filter(nzchar, c(config$expression_source_id, config$differential_source_id, config$metadata_source_id)),
+        confirmed_signature = config$raw_count_recipe_confirmed_signature %||% "",
+        differential_match_signature = config$differential_match_confirmed_signature %||% "",
+        config = config, updated_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")
+      )
+    )
+    commit(project, record_history = TRUE, origin = origin)
+    project
   }
 
   data_source_object <- function(source) {
@@ -857,6 +926,56 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     bp_compute_pca(expression_data, metadata_data, config)
   }
 
+  compute_heatmap_for_config <- function(
+    config = bp_heatmap_config_from_project(state$project), project = state$project,
+    require_pipeline_confirmation = TRUE, render_plot = FALSE
+  ) {
+    config <- bp_normalize_heatmap_config(config, project)
+    expression_source <- bp_pca_source(project, config$expression_source_id)
+    if (is.null(expression_source)) {
+      return(list(ok = FALSE, error = "热图表达数据源未注册。", diagnostics = list(), warnings = character()))
+    }
+    expression_data <- pca_source_data(config$expression_source_id, project)
+    effective_semantic <- bp_data_source_effective_semantic(expression_source, expression_data)
+    config$input_semantic_type <- if (!isTRUE(expression_source$semantic_confirmed) && identical(effective_semantic, "raw_counts")) {
+      "unconfirmed_raw_counts"
+    } else effective_semantic
+    if (is.null(expression_data)) {
+      return(list(ok = FALSE, error = "热图表达数据源不可用；请重新导入或链接该数据。", diagnostics = list(), warnings = character()))
+    }
+    if (isTRUE(require_pipeline_confirmation) && identical(config$input_semantic_type, "raw_counts") &&
+        !identical(config$raw_count_recipe_confirmed_signature, bp_heatmap_recipe_signature(config))) {
+      return(list(
+        ok = FALSE,
+        error = "请先完成表达矩阵预处理并生成 logCPM，中间结果就绪后才能继续 DEG 匹配。",
+        requires_preprocessing = TRUE, diagnostics = list(), warnings = character()
+      ))
+    }
+    metadata_data <- if (nzchar(config$metadata_source_id)) pca_source_data(config$metadata_source_id, project) else NULL
+    if (nzchar(config$metadata_source_id) && is.null(metadata_data)) {
+      return(list(ok = FALSE, error = "热图样本信息表不可用；请重新导入或链接该数据。", diagnostics = list(), warnings = character()))
+    }
+    differential_data <- if (nzchar(config$differential_source_id)) pca_source_data(config$differential_source_id, project) else NULL
+    if (identical(config$feature_selection_mode, "differential_results") && is.null(differential_data)) {
+      return(list(
+        ok = FALSE, error = "请选择可用的差异分析结果，用于筛选显著基因。",
+        requires_deg_confirmation = TRUE, diagnostics = list(), warnings = character()
+      ))
+    }
+    if (isTRUE(require_pipeline_confirmation) && identical(config$feature_selection_mode, "differential_results") &&
+        !identical(config$differential_match_confirmed_signature, bp_heatmap_deg_match_signature(config))) {
+      return(list(
+        ok = FALSE,
+        error = "请先点击“验证并提取差异基因”，确认 DEG 与表达矩阵能够匹配。",
+        requires_deg_confirmation = TRUE, diagnostics = list(), warnings = character()
+      ))
+    }
+    bp_compute_heatmap(
+      expression_data, metadata_data, config,
+      differential_data = differential_data, render_plot = render_plot
+    )
+  }
+
   prepare_pca_config <- function(config, project = state$project) {
     config <- bp_normalize_pca_config(config, project)
     result <- compute_pca_for_config(config, project)
@@ -878,9 +997,26 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     list(config = config, result = result, cleared = cleared)
   }
 
+  prepare_heatmap_config <- function(config, project = state$project) {
+    config <- bp_normalize_heatmap_config(config, project)
+    source <- bp_pca_source(project, config$expression_source_id)
+    if (!is.null(source)) {
+      semantic <- bp_data_source_effective_semantic(source, pca_source_data(source$id, project))
+      config$input_semantic_type <- if (!isTRUE(source$semantic_confirmed) && identical(semantic, "raw_counts")) "unconfirmed_raw_counts" else semantic
+    }
+    if (identical(config$input_semantic_type, "raw_counts")) config$row_zscore <- TRUE
+    result <- compute_heatmap_for_config(config, project)
+    list(config = config, result = result, cleared = character())
+  }
+
   pca_result <- shiny::reactive({
     if (!identical(bp_visual_chart_type(state$project), "pca")) return(NULL)
     compute_pca_for_config(bp_pca_config_from_project(state$project), state$project)
+  })
+
+  heatmap_result <- shiny::reactive({
+    if (!identical(bp_visual_chart_type(state$project), "heatmap")) return(NULL)
+    compute_heatmap_for_config(bp_heatmap_config_from_project(state$project), state$project)
   })
 
   cache_pca_result <- function(result, project = NULL) {
@@ -898,16 +1034,32 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     TRUE
   }
 
+  cache_heatmap_result <- function(result, project = NULL) {
+    if (is.null(result) || !isTRUE(result$ok)) return(FALSE)
+    objects <- shiny::isolate(state$data_objects)
+    objects[["dataset_heatmap_matrix"]] <- result$heatmap_matrix
+    if (is.data.frame(result$normalized_expression)) {
+      objects[["dataset_normalized_expression"]] <- result$normalized_expression
+    } else {
+      objects[["dataset_normalized_expression"]] <- NULL
+    }
+    state$data_objects <- objects
+    state$data_preview_source_id <- "dataset_heatmap_matrix"
+    TRUE
+  }
+
   start_preview <- function() {
     process <- shiny::isolate(state$preview_process)
     if (!is.null(process) && process$is_alive()) process$kill()
     status_path <- tempfile("bioplotblocks-preview-", fileext = ".json")
     image_path <- tempfile("bioplotblocks-preview-", fileext = ".png")
+    active_chart <- bp_visual_chart_type(shiny::isolate(state$project))
+    if (identical(active_chart, "heatmap")) state$preview_image <- NULL
     state$preview_status <- "running"
     state$preview_result <- NULL
     state$preview_status_file <- status_path
     state$preview_pending_image <- image_path
-    if (identical(bp_visual_chart_type(shiny::isolate(state$project)), "pca")) {
+    if (identical(active_chart, "pca")) {
       result <- shiny::isolate(compute_pca_for_config(bp_pca_config_from_project(state$project), state$project))
       if (!isTRUE(result$ok)) {
         state$preview_status <- "error"
@@ -916,6 +1068,22 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
         return()
       }
       cache_pca_result(result)
+    } else if (identical(active_chart, "heatmap")) {
+      result <- shiny::isolate(compute_heatmap_for_config(bp_heatmap_config_from_project(state$project), state$project))
+      if (!isTRUE(result$ok)) {
+        if (isTRUE(result$requires_preprocessing) || isTRUE(result$requires_deg_confirmation) || isTRUE(result$requires_recipe_confirmation)) {
+          set_heatmap_preview_waiting(
+            result$error %||% "请先完成热图分析步骤。",
+            if (isTRUE(result$requires_preprocessing) || isTRUE(result$requires_recipe_confirmation)) "preprocess" else "deg_match"
+          )
+          return()
+        }
+        state$preview_status <- "error"
+        state$preview_result <- list(ok = FALSE, error = result$error %||% "热图计算失败。", warnings = result$warnings %||% list(), messages = list())
+        state$preview_pending_image <- NULL
+        return()
+      }
+      cache_heatmap_result(result)
     }
     active_id <- shiny::isolate(state$project$active_data_source_id %||% "dataset_example")
     active_sources <- Filter(function(source) identical(source$id, active_id), shiny::isolate(state$project$data_sources %||% list()))
@@ -957,12 +1125,17 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       if (is.null(result) || !isTRUE(result$ok)) return(NULL)
       return(result[[source$derived_kind %||% "scores"]])
     }
+    if (isTRUE(source$derived) && source$source_type %in% c("derived_heatmap", "derived_expression")) {
+      result <- heatmap_result()
+      if (is.null(result) || !isTRUE(result$ok)) return(NULL)
+      return(result[[source$derived_kind %||% "heatmap_matrix"]])
+    }
     if (isTRUE(source$example)) bp_default_environment()$df else shiny::isolate(state$data_objects[[source$id]])
   }
 
   semantic_focus_source <- function(project = state$project) {
-    if (identical(bp_visual_chart_type(project), "pca")) {
-      config <- bp_pca_config_from_project(project)
+    if (bp_visual_chart_type(project) %in% c("pca", "heatmap")) {
+      config <- if (identical(bp_visual_chart_type(project), "heatmap")) bp_heatmap_config_from_project(project) else bp_pca_config_from_project(project)
       return(bp_pca_source(project, config$expression_source_id))
     }
     visual_source(project)
@@ -991,6 +1164,10 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       result <- pca_result()
       return(if (!is.null(result) && isTRUE(result$ok)) names(result$scores) else character())
     }
+    if (identical(bp_visual_chart_type(project), "heatmap")) {
+      result <- heatmap_result()
+      return(if (!is.null(result) && isTRUE(result$ok)) names(result$heatmap_matrix) else character())
+    }
     source <- visual_source(project)
     if (is.null(source)) return(character())
     data <- if (isTRUE(source$example)) bp_default_environment()$df else state$data_objects[[source$id]]
@@ -1002,7 +1179,8 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   }
 
   visual_matrix_source_config_from_inputs <- function(project = state$project, expression_source_id = NULL) {
-    current <- bp_pca_config_from_project(project)
+    is_heatmap <- identical(bp_visual_chart_type(project), "heatmap")
+    current <- if (is_heatmap) bp_heatmap_config_from_project(project) else bp_pca_config_from_project(project)
     feature_field <- input$visual_pca_feature_id_field %||% current$feature_id_field
     sample_field <- input$visual_pca_expression_sample_id_field %||% current$expression_sample_id_field
     current$expression_source_id <- expression_source_id %||% input$visual_pca_expression_source %||% current$expression_source_id
@@ -1014,7 +1192,12 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     current$expression_sample_id_field <- sample_field %||% ""
     current$metadata_sample_id_field <- input$visual_pca_metadata_id_field %||% current$metadata_sample_id_field
     current$unmatched_sample_policy <- input$visual_pca_unmatched_policy %||% current$unmatched_sample_policy
-    bp_normalize_pca_config(current, project)
+    if (is_heatmap) {
+      current$differential_source_id <- input$visual_heatmap_deg_source %||% current$differential_source_id
+      current$differential_gene_id_field <- input$visual_heatmap_deg_gene_id %||% current$differential_gene_id_field
+      current$differential_status_field <- input$visual_heatmap_deg_status %||% current$differential_status_field
+    }
+    if (is_heatmap) bp_normalize_heatmap_config(current, project) else bp_normalize_pca_config(current, project)
   }
 
   visual_label_signature <- function(config) {
@@ -1031,6 +1214,8 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       bp_normalize_visual_violin_config(config, project)
     } else if (identical(config$chart_type %||% "scatter", "pca")) {
       bp_normalize_pca_config(config, project)
+    } else if (identical(config$chart_type %||% "scatter", "heatmap")) {
+      bp_normalize_heatmap_config(config, project)
     } else {
       bp_normalize_visual_scatter_config(config, project)
     }
@@ -1038,6 +1223,57 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
 
   visual_config_from_inputs <- function() {
     current <- visual_active_config(state$project)
+    if (identical(current$chart_type %||% "scatter", "heatmap")) {
+      source_config <- visual_matrix_source_config_from_inputs(state$project)
+      feature_choice <- input$visual_heatmap_feature_count %||% if (identical(current$variable_feature_count, "all")) "all" else as.character(current$variable_feature_count)
+      feature_count <- if (identical(feature_choice, "custom")) {
+        input$visual_heatmap_custom_feature_count %||% current$custom_feature_count
+      } else if (identical(feature_choice, "all")) "all" else suppressWarnings(as.integer(feature_choice))
+      return(list(
+        chart_type = "heatmap",
+        expression_source_id = source_config$expression_source_id,
+        metadata_source_id = source_config$metadata_source_id,
+        expression_orientation = source_config$expression_orientation,
+        feature_id_location = source_config$feature_id_location,
+        feature_id_field = source_config$feature_id_field,
+        expression_sample_id_location = source_config$expression_sample_id_location,
+        expression_sample_id_field = source_config$expression_sample_id_field,
+        metadata_sample_id_field = source_config$metadata_sample_id_field,
+        unmatched_sample_policy = source_config$unmatched_sample_policy,
+        feature_selection_mode = input$visual_heatmap_feature_mode %||% current$feature_selection_mode,
+        differential_source_id = source_config$differential_source_id,
+        differential_gene_id_field = source_config$differential_gene_id_field,
+        differential_status_field = source_config$differential_status_field,
+        differential_exclude_values = input$visual_heatmap_deg_exclude %||% current$differential_exclude_values,
+        input_semantic_type = current$input_semantic_type %||% "generic_table",
+        raw_count_filter_cpm = input$visual_heatmap_filter_cpm %||% current$raw_count_filter_cpm,
+        raw_count_filter_min_samples = input$visual_heatmap_filter_min_samples %||% current$raw_count_filter_min_samples,
+        raw_count_normalization = "tmm_logcpm",
+        raw_count_prior_count = input$visual_heatmap_prior_count %||% current$raw_count_prior_count,
+        raw_count_recipe_confirmed_signature = current$raw_count_recipe_confirmed_signature %||% "",
+        differential_match_confirmed_signature = current$differential_match_confirmed_signature %||% "",
+        transform = "none",
+        variable_feature_count = feature_count,
+        custom_feature_count = input$visual_heatmap_custom_feature_count %||% current$custom_feature_count,
+        remove_zero_variance = if (is.null(input$visual_heatmap_remove_zero_variance)) isTRUE(current$remove_zero_variance) else isTRUE(input$visual_heatmap_remove_zero_variance),
+        missing_value_policy = input$visual_heatmap_missing_policy %||% current$missing_value_policy,
+        row_zscore = if (identical(current$input_semantic_type, "raw_counts")) TRUE else if (is.null(input$visual_heatmap_row_zscore)) isTRUE(current$row_zscore) else isTRUE(input$visual_heatmap_row_zscore),
+        cluster_rows = if (is.null(input$visual_heatmap_cluster_rows)) isTRUE(current$cluster_rows) else isTRUE(input$visual_heatmap_cluster_rows),
+        cluster_columns = if (is.null(input$visual_heatmap_cluster_columns)) isTRUE(current$cluster_columns) else isTRUE(input$visual_heatmap_cluster_columns),
+        sample_order = input$visual_heatmap_sample_order %||% current$sample_order,
+        group_field = input$visual_heatmap_group %||% current$group_field,
+        annotation_fields = input$visual_heatmap_annotations %||% current$annotation_fields,
+        show_sample_names = if (is.null(input$visual_heatmap_show_sample_names)) isTRUE(current$show_sample_names) else isTRUE(input$visual_heatmap_show_sample_names),
+        show_feature_names = if (is.null(input$visual_heatmap_show_feature_names)) isTRUE(current$show_feature_names) else isTRUE(input$visual_heatmap_show_feature_names),
+        low_color = input$visual_heatmap_low_color %||% current$low_color,
+        mid_color = input$visual_heatmap_mid_color %||% current$mid_color,
+        high_color = input$visual_heatmap_high_color %||% current$high_color,
+        title = input$visual_title %||% current$title,
+        legend_title = input$visual_legend_title %||% current$legend_title,
+        base_size = input$visual_base_size %||% current$base_size,
+        advanced_preserved = isTRUE(current$advanced_preserved)
+      ))
+    }
     if (identical(current$chart_type %||% "scatter", "pca")) {
       source_config <- visual_matrix_source_config_from_inputs(state$project)
       feature_choice <- input$visual_pca_feature_count %||% if (identical(current$variable_feature_count, "all")) "all" else as.character(current$variable_feature_count)
@@ -1147,6 +1383,14 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       }
       return(validation)
     }
+    if (identical(config$chart_type %||% "scatter", "heatmap")) {
+      result <- compute_heatmap_for_config(config, state$project)
+      if (!isTRUE(result$ok)) {
+        validation$valid <- FALSE
+        validation$errors <- unique(c(validation$errors, result$error %||% "热图计算失败。"))
+      }
+      return(validation)
+    }
     source <- visual_source()
     if (is.null(source) || identical(source$status, "relink_required") || isTRUE(source$relink_required)) {
       validation$valid <- FALSE
@@ -1181,9 +1425,11 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     session$sendCustomMessage("bp_visual_chart_type", list(value = config$chart_type))
     sources <- project$data_sources %||% list(bp_example_data_source())
     is_pca <- identical(config$chart_type, "pca")
-    source_config <- if (is_pca) config else bp_pca_config_from_project(project)
-    if (!is_pca) source_config$expression_source_id <- project$active_data_source_id %||% config$data_source_id %||% "dataset_example"
-    expression_sources <- if (is_pca) Filter(function(source) !isTRUE(source$derived), sources) else sources
+    is_heatmap <- identical(config$chart_type, "heatmap")
+    is_matrix <- is_pca || is_heatmap
+    source_config <- if (is_matrix) config else bp_pca_config_from_project(project)
+    if (!is_matrix) source_config$expression_source_id <- project$active_data_source_id %||% config$data_source_id %||% "dataset_example"
+    expression_sources <- if (is_matrix) Filter(function(source) !isTRUE(source$derived), sources) else sources
     metadata_sources <- Filter(function(source) !isTRUE(source$derived), sources)
     source_choices <- function(items) {
       values <- vapply(items, function(source) source$id %||% "", character(1))
@@ -1206,6 +1452,11 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       choices = c("不使用样本信息" = "", metadata_source_choices),
       selected = source_config$metadata_source_id
     )
+    shiny::updateSelectInput(
+      session, "visual_heatmap_deg_source",
+      choices = c("不使用差异结果" = "", metadata_source_choices),
+      selected = source_config$differential_source_id %||% ""
+    )
     shiny::updateSelectInput(session, "visual_pca_orientation", selected = source_config$expression_orientation)
     shiny::updateSelectInput(session, "visual_pca_unmatched_policy", selected = source_config$unmatched_sample_policy)
 
@@ -1219,6 +1470,34 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     metadata_columns <- if (is.data.frame(metadata_data) || is.matrix(metadata_data)) colnames(metadata_data) %||% character() else character()
     metadata_choices <- stats::setNames(c("", metadata_columns), c("自动识别", metadata_columns))
     shiny::updateSelectizeInput(session, "visual_pca_metadata_id_field", choices = metadata_choices, selected = source_config$metadata_sample_id_field, server = TRUE)
+
+    differential_data <- if (nzchar(source_config$differential_source_id %||% "")) pca_source_data(source_config$differential_source_id, project) else NULL
+    differential_columns <- if (is.data.frame(differential_data) || is.matrix(differential_data)) colnames(differential_data) %||% character() else character()
+    differential_field_choices <- stats::setNames(c("", differential_columns), c("自动识别", differential_columns))
+    shiny::updateSelectizeInput(
+      session, "visual_heatmap_deg_gene_id", choices = differential_field_choices,
+      selected = source_config$differential_gene_id_field %||% "", server = TRUE
+    )
+    shiny::updateSelectizeInput(
+      session, "visual_heatmap_deg_status", choices = differential_field_choices,
+      selected = source_config$differential_status_field %||% "", server = TRUE
+    )
+    status_field <- source_config$differential_status_field %||% ""
+    if (!nzchar(status_field) && length(differential_columns)) {
+      normalized_names <- tolower(gsub("[^a-z0-9]", "", differential_columns))
+      preferred <- match(c("regulated", "regulation", "status", "significance", "significant", "direction"), normalized_names, nomatch = 0L)
+      preferred <- preferred[preferred > 0L]
+      if (length(preferred)) status_field <- differential_columns[[preferred[[1]]]]
+    }
+    status_values <- if (!is.null(differential_data) && nzchar(status_field) && status_field %in% names(differential_data)) {
+      unique(trimws(as.character(differential_data[[status_field]])))
+    } else character()
+    status_values <- status_values[nzchar(status_values) & !is.na(status_values)]
+    exclude_choices <- unique(c(source_config$differential_exclude_values %||% character(), status_values))
+    shiny::updateSelectizeInput(
+      session, "visual_heatmap_deg_exclude", choices = exclude_choices,
+      selected = source_config$differential_exclude_values %||% character(), server = TRUE
+    )
 
     if (is_pca) {
 
@@ -1265,6 +1544,39 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       shiny::updateNumericInput(session, "visual_base_size", value = config$base_size)
       shiny::updateTextInput(session, "visual_title", value = config$title)
       shiny::updateTextInput(session, "visual_legend_title", value = config$legend_title)
+      later::later(function() state$visual_syncing <- FALSE, 0.35)
+      return(invisible(config))
+    }
+    if (is_heatmap) {
+      feature_selected <- if (identical(config$variable_feature_count, "all")) {
+        "all"
+      } else if (as.character(config$variable_feature_count) %in% c("25", "50", "100", "200")) {
+        as.character(config$variable_feature_count)
+      } else "custom"
+      annotation_columns <- setdiff(metadata_columns, source_config$metadata_sample_id_field %||% "")
+      annotation_choices <- stats::setNames(c("", annotation_columns), c("不选择", annotation_columns))
+      shiny::updateSelectInput(session, "visual_heatmap_feature_mode", selected = config$feature_selection_mode)
+      shiny::updateSelectInput(session, "visual_heatmap_feature_count", selected = feature_selected)
+      shiny::updateNumericInput(session, "visual_heatmap_custom_feature_count", value = config$custom_feature_count)
+      shiny::updateSelectInput(session, "visual_heatmap_missing_policy", selected = config$missing_value_policy)
+      shiny::updateSelectInput(session, "visual_heatmap_sample_order", selected = config$sample_order)
+      shiny::updateCheckboxInput(session, "visual_heatmap_remove_zero_variance", value = isTRUE(config$remove_zero_variance))
+      shiny::updateCheckboxInput(session, "visual_heatmap_row_zscore", value = isTRUE(config$row_zscore))
+      shiny::updateCheckboxInput(session, "visual_heatmap_cluster_rows", value = isTRUE(config$cluster_rows))
+      shiny::updateCheckboxInput(session, "visual_heatmap_cluster_columns", value = isTRUE(config$cluster_columns))
+      shiny::updateCheckboxInput(session, "visual_heatmap_show_sample_names", value = isTRUE(config$show_sample_names))
+      shiny::updateCheckboxInput(session, "visual_heatmap_show_feature_names", value = isTRUE(config$show_feature_names))
+      shiny::updateSelectizeInput(session, "visual_heatmap_group", choices = annotation_choices, selected = config$group_field, server = TRUE)
+      shiny::updateSelectizeInput(session, "visual_heatmap_annotations", choices = annotation_columns, selected = intersect(config$annotation_fields, annotation_columns), server = TRUE)
+      shiny::updateNumericInput(session, "visual_heatmap_filter_cpm", value = config$raw_count_filter_cpm)
+      shiny::updateNumericInput(session, "visual_heatmap_filter_min_samples", value = config$raw_count_filter_min_samples)
+      shiny::updateNumericInput(session, "visual_heatmap_prior_count", value = config$raw_count_prior_count)
+      shiny::updateTextInput(session, "visual_heatmap_low_color", value = config$low_color)
+      shiny::updateTextInput(session, "visual_heatmap_mid_color", value = config$mid_color)
+      shiny::updateTextInput(session, "visual_heatmap_high_color", value = config$high_color)
+      shiny::updateTextInput(session, "visual_title", value = config$title)
+      shiny::updateTextInput(session, "visual_legend_title", value = config$legend_title)
+      shiny::updateNumericInput(session, "visual_base_size", value = config$base_size)
       later::later(function() state$visual_syncing <- FALSE, 0.35)
       return(invisible(config))
     }
@@ -1568,6 +1880,88 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   })
   shiny::outputOptions(output, "visual_pca_recipe_panel", suspendWhenHidden = FALSE)
 
+  output$visual_heatmap_recipe_panel <- shiny::renderUI({
+    if (!identical(bp_visual_chart_type(state$project), "heatmap")) return(NULL)
+    config <- bp_heatmap_config_from_project(state$project)
+    source <- bp_pca_source(state$project, config$expression_source_id)
+    data <- if (is.null(source)) NULL else pca_source_data(source$id, state$project)
+    semantic <- bp_data_source_effective_semantic(source, data)
+    if (!isTRUE(source$semantic_confirmed) && identical(semantic, "raw_counts")) {
+      return(htmltools::tags$div(
+        class = "bp-pca-recipe-card needs-confirmation",
+        htmltools::tags$strong("先确认 Raw Count 数据语义"),
+        htmltools::tags$p("确认后才会执行 TMM、logCPM 和按基因 Z-score；软件不会静默运行关键分析。")
+      ))
+    }
+    if (!identical(semantic, "raw_counts")) {
+      return(htmltools::tags$div(
+        class = "bp-pca-recipe-card is-generic",
+        htmltools::tags$strong("表达矩阵可直接使用"),
+        htmltools::tags$p("当前输入不是 Raw Count，不执行 TMM/logCPM。下一步请验证 DEG 匹配；此处不会生成热图。")
+      ))
+    }
+    expected <- bp_heatmap_recipe_signature(config)
+    confirmed <- identical(config$raw_count_recipe_confirmed_signature, expected)
+    htmltools::tags$details(
+      class = paste("bp-pca-recipe-card", if (confirmed) "is-confirmed" else "needs-confirmation"),
+      open = "open",
+      htmltools::tags$summary(if (confirmed) "logCPM 中间矩阵已生成" else "生成 Raw Count 的 logCPM 中间矩阵"),
+      htmltools::tags$ol(
+        htmltools::tags$li("检查非负整数计数、基因 ID 与样本 ID"),
+        htmltools::tags$li("按 CPM 阈值过滤低表达基因"),
+        htmltools::tags$li("使用 edgeR TMM 归一化并转换为 logCPM"),
+        htmltools::tags$li("保存 logCPM 中间矩阵，供下一步 DEG 匹配使用；不在此步骤绘图")
+      ),
+      htmltools::tags$div(
+        class = "bp-pca-recipe-grid",
+        shiny::numericInput("visual_heatmap_filter_cpm", "CPM 阈值", value = config$raw_count_filter_cpm, min = 0, step = 0.1, width = "100%"),
+        shiny::numericInput("visual_heatmap_filter_min_samples", "至少满足的样本数", value = config$raw_count_filter_min_samples, min = 1, step = 1, width = "100%"),
+        shiny::textInput("visual_heatmap_normalization_label", "标准化与转换", value = "edgeR TMM + logCPM", width = "100%"),
+        shiny::numericInput("visual_heatmap_prior_count", "logCPM prior.count", value = config$raw_count_prior_count, min = 0.01, step = 0.5, width = "100%")
+      ),
+      htmltools::tags$div(
+        class = "bp-pca-recipe-runtime",
+        bp_icon(if (requireNamespace("edgeR", quietly = TRUE)) "check" else "warning", 16),
+        if (requireNamespace("edgeR", quietly = TRUE)) paste0("edgeR ", as.character(utils::packageVersion("edgeR")), " 可用") else "edgeR 未安装，无法执行 TMM + logCPM"
+      ),
+      shiny::actionButton(
+        "visual_heatmap_confirm_recipe",
+        if (confirmed) "更新 logCPM 中间矩阵" else "生成 logCPM 中间矩阵",
+        icon = shiny::icon("table"), class = "bp-command-button bp-command-primary"
+      ),
+      shiny::uiOutput("visual_heatmap_preprocess_summary")
+    )
+  })
+  shiny::outputOptions(output, "visual_heatmap_recipe_panel", suspendWhenHidden = FALSE)
+
+  output$visual_heatmap_preprocess_summary <- shiny::renderUI({
+    if (!identical(bp_visual_chart_type(state$project), "heatmap")) return(NULL)
+    config <- bp_heatmap_config_from_project(state$project)
+    result <- state$heatmap_preprocess_result
+    expected <- bp_heatmap_recipe_signature(config)
+    if (is.null(result) || !isTRUE(result$ok) || !identical(state$heatmap_preprocess_signature, expected)) return(NULL)
+    expression <- result$expression
+    htmltools::tagList(
+      htmltools::tags$div(
+        class = "bp-heatmap-stage-result is-ready",
+        bp_icon("check", 15),
+        htmltools::tags$div(
+          htmltools::tags$strong("logCPM 中间矩阵已就绪"),
+          htmltools::tags$p(paste0(
+            "低表达过滤保留 ", result$retained_feature_count, " / ", result$original_feature_count,
+            " 个基因 · ", result$sample_count, " 个样本 · ", result$normalization_label
+          ))
+        )
+      ),
+      htmltools::tags$details(
+        class = "bp-visual-data-preview bp-pca-score-preview",
+        htmltools::tags$summary("预览 logCPM（前 12 行 · 全部样本）"),
+        bp_data_preview_table(expression, rows = 12L, columns = ncol(expression), row_numbers = TRUE)
+      )
+    )
+  })
+  shiny::outputOptions(output, "visual_heatmap_preprocess_summary", suspendWhenHidden = FALSE)
+
   shiny::observeEvent(input$visual_workflow_mode, {
     requested <- input$visual_workflow_mode %||% "generic"
     if (!requested %in% c("generic", "rna_seq") || identical(requested, state$project$analysis_workflow_mode %||% "generic")) return()
@@ -1598,16 +1992,22 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       shiny::showNotification(conditionMessage(project), type = "error")
       return()
     }
-    if (identical(bp_visual_chart_type(project), "pca")) {
-      config <- bp_pca_config_from_project(project)
+    if (bp_visual_chart_type(project) %in% c("pca", "heatmap")) {
+      is_heatmap <- identical(bp_visual_chart_type(project), "heatmap")
+      config <- if (is_heatmap) bp_heatmap_config_from_project(project) else bp_pca_config_from_project(project)
       confirmed_source <- bp_pca_source(project, config$expression_source_id)
       config$input_semantic_type <- confirmed_source$semantic_type %||% "generic_table"
       config$raw_count_recipe_confirmed_signature <- ""
-      project$visual_config$pca <- bp_normalize_pca_config(config, project)
+      if (is_heatmap) config$differential_match_confirmed_signature <- ""
+      project$visual_config[[if (is_heatmap) "heatmap" else "pca"]] <- if (is_heatmap) bp_normalize_heatmap_config(config, project) else bp_normalize_pca_config(config, project)
       project$analysis_recipes <- project$analysis_recipes %||% list()
-      project$analysis_recipes$pca <- NULL
+      project$analysis_recipes[[if (is_heatmap) "heatmap" else "pca"]] <- NULL
     }
     commit(project, record_history = TRUE, origin = "data_semantic")
+    if (identical(bp_visual_chart_type(project), "heatmap")) {
+      clear_heatmap_stage_cache("preprocess")
+      set_heatmap_preview_waiting("数据语义已更新。Raw Count 请先生成 logCPM；标准化表达矩阵可直接进入 DEG 匹配。", "preprocess")
+    }
     sync_visual_inputs(project, bp_visual_config_from_project(project))
     if (identical(input$visual_semantic_type, "raw_counts")) {
       shiny::showNotification("已确认 Raw count。请检查并确认图表专属分析配方。", type = "message", duration = 8)
@@ -1683,6 +2083,53 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   shiny::outputOptions(output, "visual_pca_link_diagnostics", suspendWhenHidden = FALSE)
   shiny::outputOptions(output, "visual_pca_result_summary", suspendWhenHidden = FALSE)
 
+  output$visual_heatmap_result_summary <- shiny::renderUI({
+    if (!identical(bp_visual_chart_type(state$project), "heatmap")) return(NULL)
+    recipe_stage <- state$project$analysis_recipes$heatmap$stage %||% "configuration"
+    if (!identical(recipe_stage, "plot_ready")) {
+      return(htmltools::tags$div(
+        class = "bp-pca-diagnostics is-pending",
+        htmltools::tags$strong("最终热图尚未生成"),
+        htmltools::tags$div("完成 logCPM 和 DEG 匹配后，在页面底部点击“生成最终热图”。")
+      ))
+    }
+    result <- heatmap_result()
+    if (is.null(result)) return(NULL)
+    if (!isTRUE(result$ok)) {
+      return(htmltools::tags$div(
+        class = "bp-pca-diagnostics is-error",
+        htmltools::tags$strong("热图数据检查未通过"),
+        result$error %||% "无法计算热图。"
+      ))
+    }
+    annotation_text <- if (length(result$annotation_fields %||% character())) {
+      paste0("样本注释：", paste(result$annotation_fields, collapse = "、"))
+    } else "未提供样本信息：按表达模式自动聚类样本"
+    htmltools::tagList(
+      htmltools::tags$div(
+        class = "bp-pca-result-summary",
+        htmltools::tags$strong("热图结果"),
+        htmltools::tags$div(paste0(result$selected_feature_count, " 个基因 · ", result$sample_count, " 个样本 · ", annotation_text)),
+        if (identical(result$feature_selection_mode, "differential_results")) htmltools::tags$div(paste0(
+          "DEG 筛选：差异结果中 ", result$diagnostics$significant_gene_ids %||% 0L,
+          " 个显著基因 · 与表达矩阵匹配 ", result$diagnostics$matched_gene_ids %||% 0L, " 个"
+        )),
+        htmltools::tags$div(switch(result$sample_order, group_fixed = "按实验组固定样本排列", group_split = "按实验组拆分热图并在组内聚类", "按表达模式自动聚类样本")),
+        if (!is.null(result$preparation)) htmltools::tags$div(paste0(
+          "Raw Count 配方：TMM → logCPM → 基因 Z-score · 低表达过滤保留 ",
+          result$preparation$retained_feature_count, " / ", result$preparation$original_feature_count, " 个基因"
+        )),
+        lapply(result$warnings %||% character(), htmltools::tags$div)
+      ),
+      htmltools::tags$details(
+        class = "bp-visual-data-preview bp-pca-score-preview",
+        htmltools::tags$summary("预览热图矩阵（前 12 行 · 全部样本）"),
+        bp_data_preview_table(result$heatmap_matrix, rows = 12L, columns = ncol(result$heatmap_matrix), row_numbers = TRUE)
+      )
+    )
+  })
+  shiny::outputOptions(output, "visual_heatmap_result_summary", suspendWhenHidden = FALSE)
+
   output$visual_field_recommendation <- shiny::renderUI({
     source <- visual_source(state$project)
     if (is.null(source)) return(NULL)
@@ -1737,7 +2184,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
 
   output$visual_preview_status <- shiny::renderUI({
     status <- state$preview_status
-    label <- switch(status, running = "正在生成", error = "预览有错误", cancelled = "已取消", success = "预览已同步", "等待预览")
+    label <- switch(status, running = "正在生成", waiting = "等待完成分析步骤", error = "预览有错误", cancelled = "已取消", success = "预览已同步", "等待预览")
     htmltools::tags$span(
       class = paste("bp-visual-preview-status", paste0("is-", status)),
       htmltools::tags$span(class = "bp-status-dot"),
@@ -1763,7 +2210,15 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
 
   output$visual_action_status <- shiny::renderUI({
     config <- bp_visual_config_from_project(state$project)
-    status <- switch(state$preview_status, running = "正在使用本地 R 生成预览…", error = "本次预览失败；已保留上一次成功图片。", success = "已同步到 ggplot2 项目并完成预览。", cancelled = "预览已取消，项目设置未改变。", "更改字段或样式后将自动预览。")
+    status <- switch(
+      state$preview_status,
+      running = "正在使用本地 R 生成预览…",
+      waiting = state$preview_result$waiting_message %||% "请先完成分析步骤。",
+      error = if (identical(bp_visual_chart_type(state$project), "heatmap")) "本次热图预览失败；旧图已清除。" else "本次预览失败；已保留上一次成功图片。",
+      success = "已同步到 ggplot2 项目并完成预览。",
+      cancelled = "预览已取消，项目设置未改变。",
+      "更改字段或样式后将自动预览。"
+    )
     htmltools::tags$span(
       paste0(status, if (isTRUE(config$advanced_preserved)) " 高级设置仍已保留。" else "")
     )
@@ -2353,6 +2808,35 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   })
 
   output$analysis_context_view <- shiny::renderUI({
+    if (identical(bp_visual_chart_type(state$project), "heatmap")) {
+      config <- bp_heatmap_config_from_project(state$project)
+      expression_source <- bp_pca_source(state$project, config$expression_source_id)
+      metadata_source <- if (nzchar(config$metadata_source_id)) bp_pca_source(state$project, config$metadata_source_id) else NULL
+      differential_source <- if (nzchar(config$differential_source_id)) bp_pca_source(state$project, config$differential_source_id) else NULL
+      raw_counts <- identical(config$input_semantic_type, "raw_counts")
+      packages <- c(
+        paste0("R ", getRversion()),
+        paste0("ggplot2 ", as.character(utils::packageVersion("ggplot2"))),
+        if (requireNamespace("pheatmap", quietly = TRUE)) paste0("pheatmap ", as.character(utils::packageVersion("pheatmap"))),
+        if (requireNamespace("ggplotify", quietly = TRUE)) paste0("ggplotify ", as.character(utils::packageVersion("ggplotify"))),
+        if (raw_counts && requireNamespace("edgeR", quietly = TRUE)) paste0("edgeR ", as.character(utils::packageVersion("edgeR")))
+      )
+      return(htmltools::tags$div(
+        class = "bp-analysis-context",
+        htmltools::tags$div(htmltools::tags$span("分析输入"), htmltools::tags$strong(paste0(
+          expression_source$name %||% "data",
+          if (!is.null(differential_source)) paste0(" + DEG: ", differential_source$name) else "",
+          if (!is.null(metadata_source)) paste0(" + ", metadata_source$name) else ""
+        ))),
+        htmltools::tags$div(htmltools::tags$span("数据语义"), htmltools::tags$strong(semantic_label(config$input_semantic_type))),
+        htmltools::tags$div(htmltools::tags$span("分析配方"), htmltools::tags$strong(paste0(
+          if (raw_counts) "TMM → logCPM → " else "",
+          if (identical(config$feature_selection_mode, "differential_results")) "DEG match → " else if (identical(config$feature_selection_mode, "high_variance")) "high variance → " else "",
+          "gene Z-score → pheatmap"
+        ))),
+        htmltools::tags$div(htmltools::tags$span("运行依赖"), htmltools::tags$strong(paste(packages, collapse = " · ")))
+      ))
+    }
     if (!identical(bp_visual_chart_type(state$project), "pca")) return(NULL)
     config <- bp_pca_config_from_project(state$project)
     expression_source <- bp_pca_source(state$project, config$expression_source_id)
@@ -2374,8 +2858,8 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   })
 
   output$analysis_code_view <- shiny::renderUI({
-    if (!identical(bp_visual_chart_type(state$project), "pca")) return(NULL)
-    code <- tryCatch(bp_generate_pca_analysis_code(state$project), error = identity)
+    if (!bp_visual_chart_type(state$project) %in% c("pca", "heatmap")) return(NULL)
+    code <- tryCatch(bp_generate_analysis_code(state$project), error = identity)
     if (inherits(code, "error")) {
       return(htmltools::tags$div(class = "bp-code-error", bp_icon("warning", 20), conditionMessage(code)))
     }
@@ -2419,8 +2903,8 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
 
   output$code_line_count <- shiny::renderUI({
     count <- length(state$project$modules %||% list())
-    if (identical(bp_visual_chart_type(state$project), "pca")) {
-      analysis <- tryCatch(bp_generate_pca_analysis_code(state$project), error = function(error) "")
+    if (bp_visual_chart_type(state$project) %in% c("pca", "heatmap")) {
+      analysis <- tryCatch(bp_generate_analysis_code(state$project), error = function(error) "")
       if (nzchar(analysis)) count <- count + length(strsplit(analysis, "\n", fixed = TRUE)[[1]])
     }
     htmltools::tags$span(class = "bp-line-count", paste(count, if (count == 1L) "line" else "lines"))
@@ -2461,7 +2945,23 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     status <- state$preview_status
     if (identical(status, "success")) return(NULL)
     if (identical(status, "running")) {
-      return(htmltools::tags$div(class = "bp-preview-overlay", htmltools::tags$span(class = "bp-spinner"), htmltools::tags$div(htmltools::tags$strong("正在生成真实 ggplot2 预览"), htmltools::tags$p("界面仍可继续操作；完成前会保留上一次成功图片。"))))
+      return(htmltools::tags$div(
+        class = "bp-preview-overlay", htmltools::tags$span(class = "bp-spinner"),
+        htmltools::tags$div(
+          htmltools::tags$strong("正在生成真实 ggplot2 预览"),
+          htmltools::tags$p(if (identical(bp_visual_chart_type(state$project), "heatmap")) "正在生成最终热图；不会以旧图冒充本次结果。" else "界面仍可继续操作；完成前会保留上一次成功图片。")
+        )
+      ))
+    }
+    if (identical(status, "waiting")) {
+      return(htmltools::tags$div(
+        class = "bp-preview-overlay bp-preview-waiting",
+        bp_icon("info", 28),
+        htmltools::tags$div(
+          htmltools::tags$strong("最终热图尚未生成"),
+          htmltools::tags$p(state$preview_result$waiting_message %||% "请按左侧分析步骤继续配置。")
+        )
+      ))
     }
     if (identical(status, "error")) {
       return(htmltools::tags$div(
@@ -2571,7 +3071,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       vapply(Filter(function(x) identical(x$level, "warning"), diagnostics), `[[`, character(1), "message"),
       unlist(state$preview_result$warnings %||% list(), use.names = FALSE)
     ))
-    ready_label <- switch(state$preview_status, running = "Running", error = "Needs attention", cancelled = "Cancelled", "Ready")
+    ready_label <- switch(state$preview_status, running = "Running", waiting = "Waiting for analysis", error = "Needs attention", cancelled = "Cancelled", "Ready")
     htmltools::tagList(
       htmltools::tags$div(class = paste("bp-status-item bp-ready-status", paste0("status-", state$preview_status)), htmltools::tags$span(class = "bp-status-dot"), ready_label),
       htmltools::tags$div(class = "bp-status-item bp-error-status", bp_icon(if (length(errors)) "warning" else "check", 16), paste(length(errors), if (length(errors) == 1L) "error" else "errors")),
@@ -2636,7 +3136,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
 
   shiny::observeEvent(input$visual_pca_expression_source, {
     if (isTRUE(state$visual_syncing)) return()
-    if (identical(bp_visual_chart_type(state$project), "pca")) return()
+    if (bp_visual_chart_type(state$project) %in% c("pca", "heatmap")) return()
     source_id <- input$visual_pca_expression_source %||% ""
     current_id <- state$project$active_data_source_id %||% "dataset_example"
     if (!nzchar(source_id) || identical(source_id, current_id)) return()
@@ -2675,7 +3175,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   )), 480)
   shiny::observeEvent(visual_matrix_source_reactive(), {
     if (isTRUE(state$visual_syncing)) return()
-    if (identical(bp_visual_chart_type(state$project), "pca")) return()
+    if (bp_visual_chart_type(state$project) %in% c("pca", "heatmap")) return()
     current <- bp_pca_config_from_project(state$project)
     expression_source_id <- state$project$active_data_source_id %||% "dataset_example"
     incoming <- visual_matrix_source_config_from_inputs(state$project, expression_source_id)
@@ -2711,7 +3211,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     chart_type, project = shiny::isolate(state$project), record_history = TRUE,
     origin = "visual_source", allow_example_fallback = FALSE
   ) {
-    chart_type <- if (chart_type %in% c("scatter", "volcano", "boxplot", "violin", "pca")) chart_type else "scatter"
+    chart_type <- if (chart_type %in% c("scatter", "volcano", "boxplot", "violin", "pca", "heatmap")) chart_type else "scatter"
     workflow <- project$analysis_workflow_mode %||% "generic"
     if (identical(chart_type, "volcano") && !identical(workflow, "rna_seq")) {
       shiny::showNotification("火山图仅在 RNA-seq 引导中提供；请先切换工作流模式。", type = "warning")
@@ -2720,6 +3220,46 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     }
     if (identical(bp_visual_chart_type(project), chart_type)) {
       sync_visual_inputs(project, bp_visual_config_from_project(project))
+      return(TRUE)
+    }
+    if (identical(chart_type, "heatmap")) {
+      config <- bp_normalize_heatmap_config(project$visual_config$heatmap %||% bp_heatmap_defaults(project), project)
+      active <- visual_source(project)
+      expression_source <- bp_pca_source(project, config$expression_source_id)
+      expression_semantic <- if (is.null(expression_source)) "" else expression_source$semantic_type %||% expression_source$semantic_suggestion %||% ""
+      if (!nzchar(config$expression_source_id %||% "") || is.null(expression_source) || isTRUE(expression_source$derived) || expression_semantic %in% c("differential_results", "sample_metadata")) {
+        expression_candidates <- Filter(function(candidate) {
+          !isTRUE(candidate$derived) && (candidate$semantic_type %||% candidate$semantic_suggestion %||% "") %in% c("raw_counts", "normalized_expression")
+        }, project$data_sources %||% list())
+        config$expression_source_id <- if (length(expression_candidates)) expression_candidates[[1]]$id else "dataset_example"
+      }
+      active_semantic <- if (is.null(active)) "" else active$semantic_type %||% active$semantic_suggestion %||% ""
+      if (identical(config$feature_selection_mode, "differential_results") && !nzchar(config$differential_source_id %||% "")) {
+        differential_candidates <- Filter(function(candidate) {
+          !isTRUE(candidate$derived) && identical(candidate$semantic_type %||% candidate$semantic_suggestion %||% "", "differential_results")
+        }, project$data_sources %||% list())
+        config$differential_source_id <- if (identical(active_semantic, "differential_results")) active$id else if (length(differential_candidates)) differential_candidates[[1]]$id else ""
+      }
+      source <- bp_pca_source(project, config$expression_source_id)
+      data <- if (is.null(source)) NULL else pca_source_data(source$id, project)
+      semantic <- bp_data_source_effective_semantic(source, data)
+      config$input_semantic_type <- if (!isTRUE(source$semantic_confirmed) && identical(semantic, "raw_counts")) "unconfirmed_raw_counts" else semantic
+      computed <- compute_heatmap_for_config(config, project)
+      result <- bp_apply_visual_heatmap_config(project, config, registry, analysis_result = if (isTRUE(computed$ok)) computed else NULL)
+      if (project$name %in% c("Untitled scatter plot", "Untitled volcano plot", "Untitled boxplot", "Untitled violin plot", "Untitled PCA plot")) {
+        result$project$name <- "Untitled expression heatmap"
+        shiny::updateTextInput(session, "project_name", value = result$project$name)
+      }
+      commit(result$project, result$root_instance_id, record_history = record_history, origin = origin)
+      sync_visual_inputs(result$project, result$config)
+      if (!isTRUE(computed$ok)) {
+        set_heatmap_preview_waiting(computed$error %||% "请按左侧步骤完成热图分析配置。", "configuration")
+        shiny::showNotification(computed$error %||% "热图数据配置需要调整。", type = "warning", duration = 10)
+      } else {
+        cache_heatmap_result(computed, result$project)
+        shiny::showNotification("已切换到表达热图；请检查矩阵方向、样本注释与排列方式。", type = "message")
+        if (isTRUE(input$visual_auto_preview)) start_preview()
+      }
       return(TRUE)
     }
     if (identical(chart_type, "pca")) {
@@ -2809,6 +3349,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   shiny::observeEvent(input$visual_chart_boxplot, switch_visual_chart("boxplot"), ignoreInit = TRUE)
   shiny::observeEvent(input$visual_chart_violin, switch_visual_chart("violin"), ignoreInit = TRUE)
   shiny::observeEvent(input$visual_chart_pca, switch_visual_chart("pca"), ignoreInit = TRUE)
+  shiny::observeEvent(input$visual_chart_heatmap, switch_visual_chart("heatmap"), ignoreInit = TRUE)
 
   shiny::observeEvent(input$visual_recommend_fields, {
     source <- visual_source(state$project)
@@ -2848,16 +3389,17 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       boxplot = bp_visual_boxplot_defaults(project),
       violin = bp_visual_violin_defaults(project),
       pca = bp_pca_defaults(project),
+      heatmap = bp_heatmap_defaults(project),
       bp_visual_scatter_config_from_project(project)
     )
     config$chart_type <- chart_type
-    if (identical(chart_type, "pca")) {
+    if (chart_type %in% c("pca", "heatmap")) {
       config$expression_source_id <- "dataset_example"
       config$expression_orientation <- "genes_by_samples"
       config$feature_id_location <- "column"
       config$feature_id_field <- "gene"
       config$transform <- "none"
-      config$variable_feature_count <- "all"
+      config$variable_feature_count <- if (identical(chart_type, "heatmap")) 50L else "all"
     } else {
       config <- apply_visual_recommendation(config, recommendation)
     }
@@ -2867,6 +3409,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       boxplot = "Untitled boxplot",
       violin = "Untitled violin plot",
       pca = "Untitled PCA plot",
+      heatmap = "Untitled expression heatmap",
       "Untitled scatter plot"
     )
     project$name <- config$title
@@ -2879,7 +3422,10 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     state$preview_image <- NULL
     shiny::updateTextInput(session, "project_name", value = result$project$name)
     sync_visual_inputs(result$project, result$config)
-    if (isTRUE(input$visual_auto_preview)) start_preview()
+    if (identical(chart_type, "heatmap")) {
+      clear_heatmap_stage_cache("preprocess")
+      set_heatmap_preview_waiting("请选择表达矩阵，并按步骤完成预处理和 DEG 匹配。", "input")
+    } else if (isTRUE(input$visual_auto_preview)) start_preview()
   }, ignoreInit = TRUE)
 
   shiny::observeEvent(input$visual_box_jitter, {
@@ -2947,6 +3493,168 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     start_preview()
   }, ignoreInit = TRUE, priority = 300)
 
+  shiny::observeEvent(input$visual_heatmap_confirm_recipe, {
+    if (!identical(bp_visual_chart_type(state$project), "heatmap")) return()
+    config <- bp_normalize_heatmap_config(visual_config_from_inputs(), state$project)
+    source <- bp_pca_source(state$project, config$expression_source_id)
+    data <- if (is.null(source)) NULL else pca_source_data(source$id, state$project)
+    if (is.null(source) || is.null(data)) {
+      shiny::showNotification("Raw Count 数据源不可用；请重新导入或链接。", type = "error")
+      return()
+    }
+    if (!isTRUE(source$semantic_confirmed) || !identical(source$semantic_type, "raw_counts")) {
+      shiny::showNotification("请先将表达数据语义确认为 Raw Count。", type = "warning")
+      return()
+    }
+    if (!requireNamespace("edgeR", quietly = TRUE)) {
+      shiny::showNotification("当前 R 环境未安装 edgeR，无法执行 TMM + logCPM。", type = "error", duration = NULL)
+      return()
+    }
+    config$input_semantic_type <- "raw_counts"
+    config$raw_count_normalization <- "tmm_logcpm"
+    config$transform <- "none"
+    config$row_zscore <- TRUE
+    config$raw_count_recipe_confirmed_signature <- bp_heatmap_recipe_signature(config)
+    config$differential_match_confirmed_signature <- ""
+    preparation <- tryCatch(bp_raw_count_prepare_core(data, config), error = identity)
+    if (inherits(preparation, "error")) {
+      shiny::showNotification(conditionMessage(preparation), type = "error", duration = NULL)
+      return()
+    }
+    clear_heatmap_stage_cache("preprocess")
+    state$heatmap_preprocess_result <- preparation
+    state$heatmap_preprocess_signature <- config$raw_count_recipe_confirmed_signature
+    objects <- shiny::isolate(state$data_objects)
+    objects[["dataset_normalized_expression"]] <- preparation$expression
+    state$data_objects <- objects
+    project <- commit_heatmap_stage_config(config, "expression_ready", "heatmap_preprocess")
+    sync_visual_inputs(project, config)
+    set_heatmap_preview_waiting(
+      "logCPM 中间矩阵已生成。下一步请选择差异分析结果，并点击“验证并提取差异基因”。",
+      "expression_ready"
+    )
+    shiny::showNotification(
+      paste0(
+        "logCPM 中间矩阵已生成：保留 ", preparation$retained_feature_count,
+        " / ", preparation$original_feature_count,
+        " 个基因。尚未绘图，请继续完成 DEG 匹配。"
+      ),
+      type = "message", duration = 9
+    )
+  }, ignoreInit = TRUE, priority = 300)
+
+  shiny::observeEvent(input$visual_heatmap_validate_deg, {
+    if (!identical(bp_visual_chart_type(state$project), "heatmap")) return()
+    config <- bp_normalize_heatmap_config(visual_config_from_inputs(), state$project)
+    if (!identical(config$feature_selection_mode, "differential_results")) {
+      shiny::showNotification("当前热图未使用差异分析结果，不需要执行 DEG 匹配。", type = "message")
+      return()
+    }
+    if (identical(config$input_semantic_type, "raw_counts") &&
+        !identical(config$raw_count_recipe_confirmed_signature, bp_heatmap_recipe_signature(config))) {
+      shiny::showNotification("请先生成或更新 logCPM 中间矩阵。", type = "warning", duration = 8)
+      set_heatmap_preview_waiting("Raw Count 尚未完成 logCPM 预处理。", "preprocess")
+      return()
+    }
+    if (!nzchar(config$differential_source_id %||% "")) {
+      shiny::showNotification("请选择差异分析结果。", type = "warning")
+      return()
+    }
+    differential_source <- bp_pca_source(state$project, config$differential_source_id)
+    differential_data <- if (is.null(differential_source)) NULL else pca_source_data(differential_source$id, state$project)
+    if (is.null(differential_data)) {
+      shiny::showNotification("差异分析结果不可用；请重新导入或链接该数据。", type = "error", duration = NULL)
+      return()
+    }
+
+    match_config <- config
+    match_config$row_zscore <- FALSE
+    match_config$cluster_rows <- FALSE
+    match_config$cluster_columns <- FALSE
+    match_config$metadata_source_id <- ""
+    match_config$metadata_sample_id_field <- ""
+    match_config$group_field <- ""
+    match_config$annotation_fields <- character()
+    match_result <- compute_heatmap_for_config(
+      match_config, state$project,
+      require_pipeline_confirmation = FALSE, render_plot = FALSE
+    )
+    if (!isTRUE(match_result$ok)) {
+      clear_heatmap_stage_cache("match")
+      set_heatmap_preview_waiting(match_result$error %||% "DEG 与表达矩阵匹配失败。", "deg_match")
+      shiny::showNotification(match_result$error %||% "DEG 与表达矩阵匹配失败。", type = "error", duration = NULL)
+      return()
+    }
+
+    config$differential_match_confirmed_signature <- bp_heatmap_deg_match_signature(config)
+    state$heatmap_match_result <- match_result
+    state$heatmap_match_signature <- config$differential_match_confirmed_signature
+    objects <- shiny::isolate(state$data_objects)
+    objects[["dataset_heatmap_matched_expression"]] <- match_result$heatmap_matrix
+    if (is.data.frame(match_result$normalized_expression)) {
+      objects[["dataset_normalized_expression"]] <- match_result$normalized_expression
+      state$heatmap_preprocess_result <- match_result$preparation %||% state$heatmap_preprocess_result
+      state$heatmap_preprocess_signature <- config$raw_count_recipe_confirmed_signature
+    }
+    state$data_objects <- objects
+    project <- commit_heatmap_stage_config(config, "deg_ready", "heatmap_deg_match")
+    sync_visual_inputs(project, config)
+    set_heatmap_preview_waiting(
+      "DEG 已与表达矩阵匹配。请检查 Z-score、样本注释和聚类设置，然后点击“生成最终热图”。",
+      "deg_ready"
+    )
+    diagnostics <- match_result$diagnostics %||% list()
+    shiny::showNotification(
+      paste0(
+        "DEG 匹配完成：", diagnostics$significant_gene_ids %||% 0L,
+        " 个显著基因中有 ", diagnostics$matched_gene_ids %||% 0L,
+        " 个匹配表达矩阵。尚未绘图。"
+      ),
+      type = "message", duration = 9
+    )
+  }, ignoreInit = TRUE, priority = 300)
+
+  output$visual_heatmap_deg_match_summary <- shiny::renderUI({
+    if (!identical(bp_visual_chart_type(state$project), "heatmap")) return(NULL)
+    config <- bp_heatmap_config_from_project(state$project)
+    if (!identical(config$feature_selection_mode, "differential_results")) {
+      return(htmltools::tags$div(
+        class = "bp-heatmap-stage-result is-neutral",
+        bp_icon("info", 15), htmltools::tags$span("当前使用高变/全部基因模式，无需 DEG 匹配。")
+      ))
+    }
+    result <- state$heatmap_match_result
+    expected <- bp_heatmap_deg_match_signature(config)
+    if (is.null(result) || !isTRUE(result$ok) || !identical(state$heatmap_match_signature, expected)) {
+      return(htmltools::tags$div(
+        class = "bp-heatmap-stage-result is-pending",
+        bp_icon("info", 15),
+        htmltools::tags$span("等待验证：此步骤只提取并预览匹配基因，不会生成热图。")
+      ))
+    }
+    diagnostics <- result$diagnostics %||% list()
+    htmltools::tagList(
+      htmltools::tags$div(
+        class = "bp-heatmap-stage-result is-ready",
+        bp_icon("check", 15),
+        htmltools::tags$div(
+          htmltools::tags$strong("DEG 匹配矩阵已就绪"),
+          htmltools::tags$p(paste0(
+            "显著基因 ", diagnostics$significant_gene_ids %||% 0L,
+            " · 成功匹配 ", diagnostics$matched_gene_ids %||% 0L,
+            " · 未匹配 ", length(diagnostics$unmatched_gene_ids %||% character())
+          ))
+        )
+      ),
+      htmltools::tags$details(
+        class = "bp-visual-data-preview bp-pca-score-preview",
+        htmltools::tags$summary("预览匹配后的表达矩阵（前 12 行 · 尚未 Z-score）"),
+        bp_data_preview_table(result$heatmap_matrix, rows = 12L, columns = ncol(result$heatmap_matrix), row_numbers = TRUE)
+      )
+    )
+  })
+  shiny::outputOptions(output, "visual_heatmap_deg_match_summary", suspendWhenHidden = FALSE)
+
   visual_config_reactive <- shiny::debounce(shiny::reactive(visual_config_from_inputs()), 480)
   shiny::observeEvent(visual_config_reactive(), {
     if (!identical(state$interface_mode, "visual")) return()
@@ -2956,12 +3664,18 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       return()
     }
     raw_config <- visual_config_reactive()
-    if (!grepl("^#[0-9A-Fa-f]{6}$", trimws(raw_config$point_color %||% ""))) {
+    is_pca <- identical(raw_config$chart_type, "pca")
+    is_heatmap <- identical(raw_config$chart_type, "heatmap")
+    is_matrix <- is_pca || is_heatmap
+    if (!is_matrix && !grepl("^#[0-9A-Fa-f]{6}$", trimws(raw_config$point_color %||% ""))) {
       state$visual_input_error <- "invalid_color"
       return()
     }
-    is_pca <- identical(raw_config$chart_type, "pca")
-    if (!is_pca && !grepl("^#[0-9A-Fa-f]{6}$", trimws(raw_config$reference_line_color %||% ""))) {
+    if (is_heatmap && any(!vapply(c(raw_config$low_color, raw_config$mid_color, raw_config$high_color), function(value) grepl("^#[0-9A-Fa-f]{6}$", trimws(value %||% "")), logical(1)))) {
+      state$visual_input_error <- "invalid_heatmap_color"
+      return()
+    }
+    if (!is_matrix && !grepl("^#[0-9A-Fa-f]{6}$", trimws(raw_config$reference_line_color %||% ""))) {
       state$visual_input_error <- "invalid_reference_color"
       return()
     }
@@ -2980,7 +3694,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       state$visual_input_error <- "invalid_violin_border_color"
       return()
     }
-    if (!is_pca) {
+    if (!is_matrix) {
       vertical_lines <- bp_visual_parse_reference_values(raw_config$vertical_reference_lines)
       horizontal_lines <- bp_visual_parse_reference_values(raw_config$horizontal_reference_lines)
       if (!isTRUE(vertical_lines$valid) || !isTRUE(horizontal_lines$valid)) {
@@ -2993,18 +3707,45 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     incoming <- visual_normalize_config(raw_config, state$project)
     incoming$advanced_preserved <- isTRUE(current$advanced_preserved)
     current <- visual_normalize_config(current, state$project)
-    prepared <- if (is_pca) prepare_pca_config(incoming, state$project) else NULL
-    if (is_pca) incoming <- prepared$config
+    prepared <- if (is_pca) prepare_pca_config(incoming, state$project) else if (is_heatmap) prepare_heatmap_config(incoming, state$project) else NULL
+    if (is_matrix) incoming <- prepared$config
     if (identical(incoming, current)) return()
-    validation <- if (is_pca && isTRUE(prepared$result$ok)) {
-      bp_validate_visual_config(incoming, names(prepared$result$scores))
-    } else if (is_pca) {
-      list(valid = FALSE, errors = prepared$result$error %||% "PCA 计算失败。")
+    if (is_heatmap) {
+      preprocess_ready <- !identical(incoming$input_semantic_type, "raw_counts") ||
+        identical(incoming$raw_count_recipe_confirmed_signature, bp_heatmap_recipe_signature(incoming))
+      deg_ready <- !identical(incoming$feature_selection_mode, "differential_results") ||
+        identical(incoming$differential_match_confirmed_signature, bp_heatmap_deg_match_signature(incoming))
+      if (!preprocess_ready) clear_heatmap_stage_cache("preprocess")
+      else if (!deg_ready) clear_heatmap_stage_cache("match")
+    }
+    validation <- if (is_matrix && isTRUE(prepared$result$ok)) {
+      bp_validate_visual_config(incoming, if (is_pca) names(prepared$result$scores) else names(prepared$result$heatmap_matrix))
+    } else if (is_matrix) {
+      list(valid = FALSE, errors = prepared$result$error %||% if (is_pca) "PCA 计算失败。" else "热图计算失败。")
     } else {
       bp_validate_visual_config(incoming, visual_current_columns())
     }
+    current_heatmap_stage <- state$project$analysis_recipes$heatmap$stage %||% "configuration"
+    if (is_heatmap && !identical(current_heatmap_stage, "plot_ready")) {
+      next_stage <- if (!identical(incoming$input_semantic_type, "raw_counts") ||
+                        identical(incoming$raw_count_recipe_confirmed_signature, bp_heatmap_recipe_signature(incoming))) {
+        if (!identical(incoming$feature_selection_mode, "differential_results") ||
+            identical(incoming$differential_match_confirmed_signature, bp_heatmap_deg_match_signature(incoming))) "deg_ready" else "expression_ready"
+      } else "preprocess"
+      commit_heatmap_stage_config(incoming, next_stage, "visual_config")
+      set_heatmap_preview_waiting(
+        if (isTRUE(validation$valid)) "分析数据已就绪。请点击“生成最终热图”。" else paste(validation$errors, collapse = " "),
+        next_stage
+      )
+      return()
+    }
     result <- if (is_pca) {
       bp_apply_visual_pca_config(
+        state$project, incoming, registry,
+        analysis_result = if (isTRUE(prepared$result$ok)) prepared$result else NULL
+      )
+    } else if (is_heatmap) {
+      bp_apply_visual_heatmap_config(
         state$project, incoming, registry,
         analysis_result = if (isTRUE(prepared$result$ok)) prepared$result else NULL
       )
@@ -3013,15 +3754,20 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     }
     commit(result$project, result$root_instance_id, origin = "visual_config")
     if (is_pca && isTRUE(prepared$result$ok)) cache_pca_result(prepared$result, result$project)
+    if (is_heatmap && isTRUE(prepared$result$ok)) cache_heatmap_result(prepared$result, result$project)
     if (is_pca && length(prepared$cleared)) {
       shiny::showNotification(paste0("数据源变化后清除了不可用的 PCA 映射：", paste(prepared$cleared, collapse = "、"), "。"), type = "warning")
+    }
+    if (is_heatmap && !isTRUE(validation$valid)) {
+      set_heatmap_preview_waiting(paste(validation$errors, collapse = " "), "configuration")
     }
     if (isTRUE(input$visual_auto_preview) && isTRUE(validation$valid)) start_preview()
   }, ignoreInit = TRUE)
 
   shiny::observeEvent(input$visual_run_preview, {
     config <- visual_config_from_inputs()
-    prepared <- if (identical(config$chart_type %||% "scatter", "pca")) prepare_pca_config(config, state$project) else NULL
+    chart_type <- config$chart_type %||% "scatter"
+    prepared <- if (identical(chart_type, "pca")) prepare_pca_config(config, state$project) else if (identical(chart_type, "heatmap")) prepare_heatmap_config(config, state$project) else NULL
     if (!is.null(prepared)) config <- prepared$config
     validation <- visual_validation(config)
     if (!isTRUE(validation$valid)) {
@@ -3030,9 +3776,16 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     }
     normalized <- visual_normalize_config(config, state$project)
     current <- visual_normalize_config(visual_active_config(state$project), state$project)
-    if (!identical(normalized, current)) {
-      result <- if (!is.null(prepared)) {
+    heatmap_requires_final_apply <- identical(chart_type, "heatmap") &&
+      !identical(state$project$analysis_recipes$heatmap$stage %||% "configuration", "plot_ready")
+    if (!identical(normalized, current) || heatmap_requires_final_apply) {
+      result <- if (identical(chart_type, "pca")) {
         bp_apply_visual_pca_config(
+          state$project, normalized, registry,
+          analysis_result = if (isTRUE(prepared$result$ok)) prepared$result else NULL
+        )
+      } else if (identical(chart_type, "heatmap")) {
+        bp_apply_visual_heatmap_config(
           state$project, normalized, registry,
           analysis_result = if (isTRUE(prepared$result$ok)) prepared$result else NULL
         )
@@ -3041,7 +3794,8 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
       }
       commit(result$project, result$root_instance_id, origin = "visual_config")
     }
-    if (!is.null(prepared) && isTRUE(prepared$result$ok)) cache_pca_result(prepared$result, state$project)
+    if (identical(chart_type, "pca") && !is.null(prepared) && isTRUE(prepared$result$ok)) cache_pca_result(prepared$result, state$project)
+    if (identical(chart_type, "heatmap") && !is.null(prepared) && isTRUE(prepared$result$ok)) cache_heatmap_result(prepared$result, state$project)
     start_preview()
   }, ignoreInit = TRUE)
 
@@ -3331,6 +4085,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     project <- bp_new_scatter_project(registry)
     commit(project, project$modules[[1]]$instance_id)
     state$data_objects <- list()
+    clear_heatmap_stage_cache("preprocess")
     state$data_preview_source_id <- project$active_data_source_id %||% "dataset_example"
     shiny::updateTextInput(session, "project_name", value = project$name)
     state$expression_edit <- NULL
@@ -3363,12 +4118,14 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
 
     commit(restored$project, restored$selected, record_history = FALSE)
     state$data_objects <- list()
+    clear_heatmap_stage_cache("preprocess")
     state$data_preview_source_id <- restored$project$active_data_source_id %||% "dataset_example"
     state$history <- list()
     state$future <- list()
     state$expression_edit <- NULL
     state$preview_status <- "initial"
     state$preview_result <- NULL
+    state$preview_image <- NULL
     shiny::updateTextInput(session, "project_name", value = restored$project$name)
     relink <- Filter(function(source) identical(source$status, "relink_required"), restored$project$data_sources %||% list())
     if (length(relink)) {
@@ -3401,6 +4158,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     parsed <- bp_parse_code(input$import_source %||% "", registry)
     commit(parsed, if (length(parsed$modules)) parsed$modules[[1]]$instance_id else NULL)
     state$data_objects <- list()
+    clear_heatmap_stage_cache("preprocess")
     state$data_preview_source_id <- parsed$active_data_source_id %||% "dataset_example"
     shiny::updateTextInput(session, "project_name", value = parsed$name)
     shiny::removeModal()
@@ -3418,6 +4176,7 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
     }
     commit(project, if (length(project$modules)) project$modules[[1]]$instance_id else NULL)
     state$data_objects <- list()
+    clear_heatmap_stage_cache("preprocess")
     state$data_preview_source_id <- project$active_data_source_id %||% "dataset_example"
     shiny::updateTextInput(session, "project_name", value = project$name)
     shiny::showNotification("Project restored with versioned module state.", type = "message")
@@ -3460,6 +4219,31 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   shiny::outputOptions(output, "download_pca_normalized", suspendWhenHidden = FALSE)
   shiny::outputOptions(output, "visual_pca_normalized_export", suspendWhenHidden = FALSE)
 
+  make_heatmap_csv_download <- function(kind) shiny::downloadHandler(
+    filename = function() paste0(gsub("[^A-Za-z0-9_-]+", "-", state$project$name), "-", gsub("_", "-", kind), ".csv"),
+    content = function(file) {
+      if (identical(kind, "normalized_expression")) {
+        data <- shiny::isolate(state$data_objects[["dataset_normalized_expression"]])
+        if (!is.data.frame(data)) stop("请先生成 logCPM 中间矩阵。", call. = FALSE)
+        utils::write.csv(data, file, row.names = FALSE, fileEncoding = "UTF-8")
+        return(invisible(NULL))
+      }
+      result <- shiny::isolate(compute_heatmap_for_config(bp_heatmap_config_from_project(state$project), state$project))
+      if (!isTRUE(result$ok)) stop(result$error %||% "热图计算失败。", call. = FALSE)
+      utils::write.csv(result[[kind]], file, row.names = FALSE, fileEncoding = "UTF-8")
+    }
+  )
+  output$download_heatmap_matrix <- make_heatmap_csv_download("heatmap_matrix")
+  output$download_heatmap_normalized <- make_heatmap_csv_download("normalized_expression")
+  output$visual_heatmap_normalized_export <- shiny::renderUI({
+    data <- state$data_objects[["dataset_normalized_expression"]]
+    if (!is.data.frame(data)) return(NULL)
+    shiny::downloadButton("download_heatmap_normalized", "导出 logCPM 表达矩阵 CSV", class = "bp-command-button")
+  })
+  shiny::outputOptions(output, "download_heatmap_matrix", suspendWhenHidden = FALSE)
+  shiny::outputOptions(output, "download_heatmap_normalized", suspendWhenHidden = FALSE)
+  shiny::outputOptions(output, "visual_heatmap_normalized_export", suspendWhenHidden = FALSE)
+
   shiny::observeEvent(input$run_preview, start_preview(), ignoreInit = TRUE)
 
   shiny::observeEvent(input$cancel_preview, {
@@ -3474,9 +4258,10 @@ bp_workspace_server <- function(input, output, session, registry, templates, roo
   }, ignoreInit = TRUE)
 
   shiny::observe({
-    shiny::invalidateLater(180, session)
     process <- state$preview_process
-    if (is.null(process) || process$is_alive()) return()
+    if (is.null(process)) return()
+    shiny::invalidateLater(180, session)
+    if (process$is_alive()) return()
     status_path <- state$preview_status_file
     if (!is.null(status_path) && file.exists(status_path)) {
       result <- jsonlite::fromJSON(status_path, simplifyVector = FALSE)

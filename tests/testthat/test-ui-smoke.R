@@ -23,6 +23,7 @@ test_that("workspace UI renders the full primary surface", {
   expect_match(html, "bp-visual-workspace")
   expect_match(html, "创建科研图表")
   expect_match(html, "visual_auto_preview")
+  expect_false(grepl('id="visual_auto_preview"[^>]*checked', html, perl = TRUE))
   expect_match(html, "visual_data_preview")
   expect_match(html, "visual_data_preview_toggle")
   expect_match(html, "visual_active_data_preview")
@@ -70,6 +71,12 @@ test_that("workspace UI renders the full primary surface", {
   expect_match(html, 'class="bp-visual-step is-active"[^>]*data-visual-section="visual-section-chart"', perl = TRUE)
   expect_match(html, "visual_workflow_mode")
   expect_match(html, "visual_data_semantics")
+  passport_position <- regexpr('id="visual_data_semantics"', html, fixed = TRUE)[[1]]
+  heatmap_preprocess_position <- regexpr("bp-heatmap-expression-preprocess", html, fixed = TRUE)[[1]]
+  data_preview_position <- regexpr('id="visual_data_preview"', html, fixed = TRUE)[[1]]
+  expect_gt(passport_position, 0)
+  expect_lt(passport_position, heatmap_preprocess_position)
+  expect_lt(passport_position, data_preview_position)
   expect_match(html, "visual_chart_compatibility")
   expect_match(html, "visual_pca_recipe_panel")
   expect_match(html, "visual_pca_metadata_source")
@@ -79,6 +86,34 @@ test_that("workspace UI renders the full primary surface", {
   expect_match(html, "visual_pca_show_ellipse")
   expect_match(html, "download_pca_scores")
   expect_match(html, "visual_pca_normalized_export")
+  expect_match(html, "visual_chart_heatmap")
+  expect_match(html, "差异基因热图", fixed = TRUE)
+  expect_match(html, "visual_heatmap_deg_source")
+  expect_match(html, "visual_heatmap_deg_gene_id")
+  expect_match(html, "visual_heatmap_deg_status")
+  expect_match(html, "visual_heatmap_deg_exclude")
+  expect_match(html, "visual_heatmap_validate_deg")
+  expect_match(html, "visual_heatmap_deg_match_summary")
+  expect_match(html, "visual_heatmap_feature_mode")
+  expect_match(html, "visual_heatmap_cluster_columns")
+  expect_match(html, "1. 表达矩阵预处理", fixed = TRUE)
+  expect_match(html, "2. 差异基因筛选", fixed = TRUE)
+  expect_match(html, "3. 样本注释（可选）", fixed = TRUE)
+  expect_match(html, "Raw Count 必须先完成低表达过滤、TMM 归一化和 logCPM 转换", fixed = TRUE)
+  expect_match(html, "验证并提取差异基因", fixed = TRUE)
+  expect_lt(
+    regexpr('id="visual_heatmap_recipe_panel"', html, fixed = TRUE)[[1]],
+    regexpr('id="visual_heatmap_deg_source"', html, fixed = TRUE)[[1]]
+  )
+  expect_lt(
+    regexpr('id="visual_heatmap_deg_source"', html, fixed = TRUE)[[1]],
+    regexpr('id="visual_pca_metadata_source"', html, fixed = TRUE)[[1]]
+  )
+  expect_lt(
+    regexpr('id="visual_pca_metadata_source"', html, fixed = TRUE)[[1]],
+    regexpr('id="visual_heatmap_feature_mode"', html, fixed = TRUE)[[1]]
+  )
+  expect_match(html, "download_heatmap_matrix")
   expect_match(html, "analysis_context_view")
   expect_match(html, "analysis_code_view")
   expect_match(html, "visual_vlines")
@@ -99,21 +134,28 @@ test_that("visual and advanced modes share a visibility-aware shell", {
   expect_match(css, ".bp-visual-preview-canvas", fixed = TRUE)
   expect_match(js, "bp_visual_chart_type", fixed = TRUE)
   expect_match(js, "setVisualChartType", fixed = TRUE)
+  expect_match(js, "生成最终热图", fixed = TRUE)
   expect_match(js, "bp_visual_workflow_mode", fixed = TRUE)
   expect_match(js, "setVisualWorkflowMode", fixed = TRUE)
   expect_match(js, 'input[name="visual_workflow_mode"]', fixed = TRUE)
   expect_match(js, "GENE EXPRESSION SCATTER", fixed = TRUE)
   expect_match(js, "DIMENSION REDUCTION", fixed = TRUE)
   expect_match(js, "scrollVisualSection", fixed = TRUE)
+  expect_match(js, "updateVisualStepFromScroll", fixed = TRUE)
+  expect_match(js, "scheduleVisualStepSync", fixed = TRUE)
+  expect_match(js, "visualStepResizeObserver", fixed = TRUE)
+  expect_match(js, 'button.setAttribute("aria-current", "step")', fixed = TRUE)
+  expect_match(js, 'closest(event.target, ".bp-visual-builder-scroll")', fixed = TRUE)
   expect_match(js, "restoreVisualPageOrigin", fixed = TRUE)
   expect_match(js, "if (section) scrollVisualSection(section);", fixed = TRUE)
-  expect_match(js, '["scatter", "volcano", "boxplot", "violin", "pca"]', fixed = TRUE)
+  expect_match(js, '["scatter", "volcano", "boxplot", "violin", "pca", "heatmap"]', fixed = TRUE)
   expect_match(js, "#visual_point_color, #visual_reference_color", fixed = TRUE)
   expect_match(js, "#visual_box_jitter_color", fixed = TRUE)
   expect_match(css, ".bp-volcano-only[hidden]", fixed = TRUE)
   expect_match(css, ".bp-boxplot-only[hidden]", fixed = TRUE)
   expect_match(css, ".bp-violin-only[hidden]", fixed = TRUE)
   expect_match(css, ".bp-pca-only[hidden]", fixed = TRUE)
+  expect_match(css, ".bp-heatmap-only[hidden]", fixed = TRUE)
   expect_match(css, ".bp-pca-source-card", fixed = TRUE)
   expect_match(css, ".bp-visual-source-card", fixed = TRUE)
   expect_match(css, "@media (min-width: 761px)", fixed = TRUE)
@@ -129,6 +171,12 @@ test_that("visual and advanced modes share a visibility-aware shell", {
   expect_match(css, ".bp-boxplot-overlap-warning", fixed = TRUE)
   expect_match(css, ".bp-visual-reference-card", fixed = TRUE)
   expect_match(css, ".bp-visual-chart-requirement", fixed = TRUE)
+  expect_match(css, ".bp-visual-chart-card > .action-label", fixed = TRUE)
+  expect_match(css, ".bp-visual-chart-card > .action-label > .bp-icon:first-child", fixed = TRUE)
+  expect_match(css, "width: 24px", fixed = TRUE)
+  expect_match(css, "height: 24px", fixed = TRUE)
+  expect_match(css, "overflow-wrap: anywhere", fixed = TRUE)
+  expect_match(css, "white-space: normal", fixed = TRUE)
   expect_match(css, 'body[data-visual-workflow-mode="generic"]', fixed = TRUE)
   expect_match(css, 'body[data-visual-workflow-mode="rna_seq"]', fixed = TRUE)
   expect_match(css, ".bp-visual-chart-card[hidden]", fixed = TRUE)
@@ -168,7 +216,15 @@ test_that("visual and advanced modes share a visibility-aware shell", {
     css,
     paste0(
       'body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type="volcano"] {',
-      "\n  grid-column: 1 / -1;\n  order: 5;\n}"
+      "\n  order: 5;\n}"
+    ),
+    fixed = TRUE
+  )
+  expect_match(
+    css,
+    paste0(
+      'body[data-visual-workflow-mode="rna_seq"] .bp-visual-chart-card[data-chart-type="heatmap"] {',
+      "\n  order: 6;\n}"
     ),
     fixed = TRUE
   )

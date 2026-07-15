@@ -35,6 +35,7 @@ bp_icon <- function(name, size = 18, label = NULL) {
     point = list(circle(6, 15, 2, fill = "currentColor", stroke = "none"), circle(11, 8, 2, fill = "currentColor", stroke = "none"), circle(18, 13, 2, fill = "currentColor", stroke = "none")),
     boxplot = list(line(4, 12, 8, 12), rect(8, 6, 8, 12), line(12, 3, 12, 6), line(12, 18, 12, 21), line(16, 12, 20, 12), line(8, 12, 16, 12)),
     violin = list(path("M12 3C8.8 4.8 7 7.1 7 10.5S8.8 16.2 12 21"), path("M12 3c3.2 1.8 5 4.1 5 7.5s-1.8 5.7-5 10.5"), line(12, 3, 12, 21)),
+    heatmap = list(rect(3, 3, 18, 18, rx = 1), line(9, 3, 9, 21), line(15, 3, 15, 21), line(3, 9, 21, 9), line(3, 15, 21, 15), rect(9, 9, 6, 6, fill = "currentColor", stroke = "none", opacity = 0.25)),
     jitter = list(circle(6, 7, 1.5, fill = "currentColor", stroke = "none"), circle(11, 15, 1.5, fill = "currentColor", stroke = "none"), circle(16, 5, 1.5, fill = "currentColor", stroke = "none"), circle(19, 16, 1.5, fill = "currentColor", stroke = "none"), circle(7, 19, 1.5, fill = "currentColor", stroke = "none")),
     hline = list(line(3, 12, 21, 12), line(6, 7, 6, 17)),
     vline = list(line(12, 3, 12, 21), line(7, 18, 17, 18)),
